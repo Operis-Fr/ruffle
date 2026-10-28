@@ -142,5 +142,27 @@ package flash.text.engine {
         public native function get lastLine():TextLine;
 
         public native function releaseLines(start:TextLine, end:TextLine):void;
+
+        public native function findNextAtomBoundary(afterCharIndex:int):int;
+        public native function findPreviousAtomBoundary(beforeCharIndex:int):int;
+        public native function findNextWordBoundary(afterCharIndex:int):int;
+        public native function findPreviousWordBoundary(beforeCharIndex:int):int;
+
+        public function getTextLineAtCharIndex(charIndex:int):TextLine {
+            var line:TextLine = this.firstLine;
+            while (line != null) {
+                var begin:int = line.textBlockBeginIndex;
+                if (charIndex >= begin && charIndex < begin + line.rawTextLength) {
+                    return line;
+                }
+                line = line.nextLine;
+            }
+            return null;
+        }
+
+        public function dump():String {
+            stub_method("flash.text.engine.TextBlock", "dump");
+            return "";
+        }
     }
 }
