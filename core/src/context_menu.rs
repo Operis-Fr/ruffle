@@ -146,6 +146,55 @@ impl<'gc> ContextMenuState<'gc> {
         }
     }
 
+    /// Build the clipboard menu of an AVM2 `ContextMenu` whose `clipboardMenu`
+    /// is enabled. Selecting an item dispatches a clipboard event to `target`.
+    pub fn build_avm2_clipboard_items(
+        &mut self,
+        flags: ClipboardItemFlags,
+        target: avm2::Object<'gc>,
+        context: &mut UpdateContext<'gc>,
+    ) {
+        let language = &context.ui.language();
+        let items = [
+            (TextControlCode::Cut, flags.cut, true, "context-menu-cut"),
+            (
+                TextControlCode::Copy,
+                flags.copy,
+                false,
+                "context-menu-copy",
+            ),
+            (
+                TextControlCode::Paste,
+                flags.paste,
+                false,
+                "context-menu-paste",
+            ),
+            (
+                TextControlCode::Delete,
+                flags.clear,
+                false,
+                "context-menu-delete",
+            ),
+            (
+                TextControlCode::SelectAll,
+                flags.select_all,
+                true,
+                "context-menu-select-all",
+            ),
+        ];
+        for (code, enabled, separator_before, caption) in items {
+            self.push(
+                ContextMenuItem {
+                    enabled,
+                    separator_before,
+                    caption: core_text(language, caption),
+                    checked: false,
+                },
+                ContextMenuCallback::Avm2Clipboard { code, target },
+            );
+        }
+    }
+
     fn build_text_items(&mut self, text: EditText<'gc>, context: &mut UpdateContext<'gc>) {
         let language = &context.ui.language();
         self.push(
@@ -246,6 +295,41 @@ pub enum ContextMenuCallback<'gc> {
         code: TextControlCode,
         text: EditText<'gc>,
     },
+    /// An item of the clipboard menu of an AVM2 `ContextMenu`
+    /// (`ContextMenu.clipboardMenu`), which dispatches the corresponding
+    /// clipboard event (`cut`, `copy`, `paste`, `clear` or `selectAll`).
+    Avm2Clipboard {
+        #[collect(require_static)]
+        code: TextControlCode,
+        target: avm2::Object<'gc>,
+    },
+}
+
+impl ContextMenuCallback<'_> {
+    /// Whether this item pastes the clipboard content, which may have to be
+    /// requested asynchronously by the frontend before running the callback.
+    pub fn is_paste(&self) -> bool {
+        matches!(
+            self,
+            Self::TextControl {
+                code: TextControlCode::Paste,
+                ..
+            } | Self::Avm2Clipboard {
+                code: TextControlCode::Paste,
+                ..
+            }
+        )
+    }
+}
+
+/// Which items of the clipboard menu of an AVM2 `ContextMenu` are enabled.
+#[derive(Clone, Copy, Default)]
+pub struct ClipboardItemFlags {
+    pub cut: bool,
+    pub copy: bool,
+    pub paste: bool,
+    pub clear: bool,
+    pub select_all: bool,
 }
 
 pub struct BuiltInItemFlags {

@@ -2,11 +2,12 @@ use crate::avm2::activation::Activation;
 use crate::avm2::globals::slots::flash_display_native_menu_item as native_item_slots;
 use crate::avm2::globals::slots::flash_ui_context_menu as menu_slots;
 use crate::avm2::globals::slots::flash_ui_context_menu_built_in_items as builtins_slots;
+use crate::avm2::globals::slots::flash_ui_context_menu_clipboard_items as clipboard_slots;
 use crate::avm2::globals::slots::flash_ui_context_menu_item as item_slots;
 use crate::avm2::object::{Object, TObject as _};
 use crate::avm2::value::Value;
 use crate::context_menu;
-use crate::display_object::DisplayObject;
+use crate::display_object::{DisplayObject, TDisplayObject};
 
 pub fn make_context_menu_state<'gc>(
     menu: Option<Object<'gc>>,
@@ -50,7 +51,28 @@ pub fn make_context_menu_state<'gc>(
         }
     }
 
-    result.build_builtin_items(builtin_items, activation.context);
+    // When the clipboard menu is enabled, the clipboard items replace the
+    // built-in items, and the clipboard events are sent to the menu owner.
+    let clipboard_target = menu
+        .filter(|menu| check_bool!(menu, menu_slots::_CLIPBOARD_MENU, true))
+        .and(object)
+        .and_then(|object| object.object2())
+        .map(Object::from);
+    if let Some(target) = clipboard_target {
+        let mut flags = context_menu::ClipboardItemFlags::default();
+        if let Some(items) =
+            menu.and_then(|menu| menu.get_slot(menu_slots::_CLIPBOARD_ITEMS).as_object())
+        {
+            flags.cut = check_bool!(items, clipboard_slots::_CUT, true);
+            flags.copy = check_bool!(items, clipboard_slots::_COPY, true);
+            flags.paste = check_bool!(items, clipboard_slots::_PASTE, true);
+            flags.clear = check_bool!(items, clipboard_slots::_CLEAR, true);
+            flags.select_all = check_bool!(items, clipboard_slots::_SELECT_ALL, true);
+        }
+        result.build_avm2_clipboard_items(flags, target, activation.context);
+    } else {
+        result.build_builtin_items(builtin_items, activation.context);
+    }
 
     if let Some(menu) = menu
         && let Value::Object(custom_items) = menu.get_slot(menu_slots::_CUSTOM_ITEMS)

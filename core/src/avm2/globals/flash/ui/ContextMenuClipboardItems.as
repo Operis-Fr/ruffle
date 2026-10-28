@@ -1,9 +1,14 @@
 package flash.ui {
     public final class ContextMenuClipboardItems {
+        [Ruffle(NativeAccessible)]
         private var _clear:Boolean;
+        [Ruffle(NativeAccessible)]
         private var _copy:Boolean;
+        [Ruffle(NativeAccessible)]
         private var _cut:Boolean;
+        [Ruffle(NativeAccessible)]
         private var _paste:Boolean;
+        [Ruffle(NativeAccessible)]
         private var _selectAll:Boolean;
 
         public function get clear():Boolean {
