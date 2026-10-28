@@ -1189,9 +1189,17 @@ impl<'gc> LayoutBox<'gc> {
         let params = EvalParameters::from_span(span);
         let mut char_end_pos = Vec::with_capacity(end - start);
 
-        font_set.evaluate(text, params, |_, _, _, advance, x| {
+        // `evaluate` iterates over code points, while text positions are
+        // expressed in code units. Make sure every code unit has an entry, so
+        // that positions following a surrogate pair are not shifted: the
+        // second half of a pair gets a zero-width entry.
+        font_set.evaluate(text, params, |pos, _, _, advance, x| {
+            let last = char_end_pos.last().copied().unwrap_or_default();
+            char_end_pos.resize(pos, last);
             char_end_pos.push(x + advance);
         });
+        let last = char_end_pos.last().copied().unwrap_or_default();
+        char_end_pos.resize(text.len(), last);
 
         Self {
             bounds: Default::default(),
