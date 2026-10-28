@@ -21,6 +21,7 @@ use gc_arena::lock::Lock;
 use gc_arena::{Collect, Gc, Mutation};
 use ruffle_common::utils::HasPrefixField;
 use std::cell::Cell;
+use std::ops::Range;
 use swf::Twips;
 
 #[derive(Clone, Collect, Copy)]
@@ -196,6 +197,62 @@ impl<'gc> TextLine<'gc> {
     pub fn text_height(self) -> f64 {
         let (ascent, descent) = self.metrics_twips();
         (ascent + descent).to_pixels()
+    }
+
+    /// Returns the ranges of the atoms of this line, relative to the start of
+    /// the line.
+    ///
+    /// Bidirectional text, ligatures and graphic elements are not supported
+    /// yet, so an atom is a single character: either one UTF-16 code unit or
+    /// a surrogate pair. The line separator ending the line (if any) is made
+    /// of one atom per code unit.
+    pub fn atoms(self) -> Vec<Range<usize>> {
+        let text = self.0.fallback.text();
+        let raw_text_length = self.raw_text_length() as usize;
+
+        let mut atoms = Vec::with_capacity(raw_text_length);
+        let mut start = 0;
+        while start < raw_text_length {
+            let is_surrogate_pair = start + 1 < text.len()
+                && matches!(text.at(start), 0xD800..=0xDBFF)
+                && matches!(text.at(start + 1), 0xDC00..=0xDFFF);
+            let end = if is_surrogate_pair {
+                start + 2
+            } else {
+                start + 1
+            };
+            atoms.push(start..end);
+            start = end;
+        }
+        atoms
+    }
+
+    /// Returns the horizontal extent `(x_min, x_max)` of the given atom, in
+    /// the local coordinate space of this line.
+    pub fn atom_x_bounds(self, atom: Range<usize>) -> (f64, f64) {
+        let fallback = self.0.fallback;
+        let displayed_length = fallback.text_length();
+
+        if atom.start >= displayed_length {
+            // Line separators are not displayed, they are at the end of the line.
+            let width = self.text_width();
+            return (width, width);
+        }
+
+        let first = fallback.char_bounds(atom.start);
+        let last = fallback.char_bounds(atom.end - 1);
+        if let (Some(first), Some(last)) = (first, last) {
+            return (first.x_min.to_pixels(), last.x_max.to_pixels());
+        }
+
+        // Some characters (e.g. tabs) are not part of any layout box: they
+        // start where the previous character ends.
+        let x = (0..atom.start)
+            .rev()
+            .find_map(|i| fallback.char_bounds(i))
+            .map(|bounds| bounds.x_max.to_pixels())
+            .unwrap_or_default();
+        (x, x)
     }
 
     pub fn fallback(self) -> EditText<'gc> {
