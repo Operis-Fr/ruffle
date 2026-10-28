@@ -1,5 +1,7 @@
 //! Various structs related to FTE used across the whole codebase.
 
+pub mod boundaries;
+
 use crate::string::AvmString;
 
 use gc_arena::Collect;

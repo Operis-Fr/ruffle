@@ -1,17 +1,22 @@
 use crate::avm2::Avm2;
 use crate::avm2::Avm2StrRepresentable;
 use crate::avm2::activation::Activation;
-use crate::avm2::error::{Error, Error2004Type, make_error_2004, make_error_2008, make_error_2175};
+use crate::avm2::error::{
+    Error, Error2004Type, Error2006Type, make_error_2004, make_error_2006, make_error_2008,
+    make_error_2175,
+};
 use crate::avm2::function::FunctionArgs;
 use crate::avm2::globals::flash::display::display_object::initialize_for_allocator;
 use crate::avm2::object::{ContentElementObject, ElementData, VectorObject};
 use crate::avm2::parameters::ParametersExt;
 use crate::avm2::value::Value;
 use crate::display_object::{DisplayObject, EditText, TDisplayObject, TextLine};
+use crate::fte::boundaries;
 use crate::fte::{TextBaselineValue, TextLineCreationResultValue, TextRotationValue};
 use crate::html::{FormatSpans, TextFormat, TextSpan};
-use crate::string::{WStr, WString};
+use crate::string::{AvmString, WStr, WString};
 use crate::{avm2_stub_getter, avm2_stub_setter};
+use ruffle_macros::istr;
 
 pub use crate::avm2::object::text_block_allocator;
 
@@ -426,6 +431,73 @@ pub fn release_lines<'gc>(
     }
 
     Ok(Value::Undefined)
+}
+
+/// Returns the raw text of the block's content, and the index argument
+/// after checking that it is within `[0, text length]`.
+fn content_text_and_index<'gc>(
+    activation: &mut Activation<'_, 'gc>,
+    this: Value<'gc>,
+    args: &FunctionArgs<'_, 'gc>,
+) -> Result<(AvmString<'gc>, usize), Error<'gc>> {
+    let this = this.as_object().unwrap().as_text_block_object().unwrap();
+    let text = this
+        .content()
+        .and_then(|content| content.text(activation))
+        .unwrap_or_else(|| istr!(activation, ""));
+    let index = args.get_i32(0);
+    if index < 0 || index as usize > text.len() {
+        return Err(make_error_2006(activation, Error2006Type::RangeError));
+    }
+    Ok((text, index as usize))
+}
+
+pub fn find_next_atom_boundary<'gc>(
+    activation: &mut Activation<'_, 'gc>,
+    this: Value<'gc>,
+    args: FunctionArgs<'_, 'gc>,
+) -> Result<Value<'gc>, Error<'gc>> {
+    let (text, index) = content_text_and_index(activation, this, &args)?;
+    if index >= text.len() {
+        return Ok((-1).into());
+    }
+    Ok((boundaries::next_atom_boundary(&text, index) as i32).into())
+}
+
+pub fn find_previous_atom_boundary<'gc>(
+    activation: &mut Activation<'_, 'gc>,
+    this: Value<'gc>,
+    args: FunctionArgs<'_, 'gc>,
+) -> Result<Value<'gc>, Error<'gc>> {
+    let (text, index) = content_text_and_index(activation, this, &args)?;
+    if index == 0 {
+        return Ok((-1).into());
+    }
+    Ok((boundaries::previous_atom_boundary(&text, index) as i32).into())
+}
+
+pub fn find_next_word_boundary<'gc>(
+    activation: &mut Activation<'_, 'gc>,
+    this: Value<'gc>,
+    args: FunctionArgs<'_, 'gc>,
+) -> Result<Value<'gc>, Error<'gc>> {
+    let (text, index) = content_text_and_index(activation, this, &args)?;
+    if index >= text.len() {
+        return Ok((text.len() as i32).into());
+    }
+    Ok((boundaries::next_word_boundary(&text, index) as i32).into())
+}
+
+pub fn find_previous_word_boundary<'gc>(
+    activation: &mut Activation<'_, 'gc>,
+    this: Value<'gc>,
+    args: FunctionArgs<'_, 'gc>,
+) -> Result<Value<'gc>, Error<'gc>> {
+    let (text, index) = content_text_and_index(activation, this, &args)?;
+    if index == 0 {
+        return Ok(0.into());
+    }
+    Ok((boundaries::previous_word_boundary(&text, index) as i32).into())
 }
 
 pub fn do_create_text_line<'gc>(
