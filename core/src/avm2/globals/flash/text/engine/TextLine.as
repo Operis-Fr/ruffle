@@ -66,8 +66,27 @@ package flash.text.engine {
         public native function get nextLine():TextLine;
 
         public function getBaselinePosition(baseline:String):Number {
-            stub_method("flash.text.engine.TextLine", "getBaselinePosition");
-            return 0.0;
+            // FIXME: This assumes that the dominant baseline is the roman one.
+            switch (baseline) {
+                case TextBaseline.ROMAN:
+                    return 0.0;
+                case TextBaseline.ASCENT:
+                    return -this.ascent;
+                case TextBaseline.DESCENT:
+                    return this.descent;
+                case TextBaseline.IDEOGRAPHIC_TOP:
+                    stub_method("flash.text.engine.TextLine", "getBaselinePosition", "with ideographic baselines");
+                    return -this.ascent;
+                case TextBaseline.IDEOGRAPHIC_CENTER:
+                    stub_method("flash.text.engine.TextLine", "getBaselinePosition", "with ideographic baselines");
+                    return (this.descent - this.ascent) / 2;
+                case TextBaseline.IDEOGRAPHIC_BOTTOM:
+                    stub_method("flash.text.engine.TextLine", "getBaselinePosition", "with ideographic baselines");
+                    return this.descent;
+                default:
+                    Error.throwError(ArgumentError, 2008, "baseline");
+                    return 0.0;
+            }
         }
 
         public native function get hasTabs():Boolean;
