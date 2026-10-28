@@ -160,6 +160,12 @@ package flash.text.engine {
             return null;
         }
 
+        [API("667")]
+        public function releaseLineCreationData():void {
+            // Ruffle doesn't keep any data to speed up the creation of
+            // further lines, so there is nothing to release.
+        }
+
         public function dump():String {
             stub_method("flash.text.engine.TextBlock", "dump");
             return "";
