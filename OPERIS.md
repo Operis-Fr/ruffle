@@ -21,6 +21,7 @@ Responsable : Damien Leroux ([@DLROperis](https://github.com/DLROperis)), avec [
 - Une branche par sujet, créée depuis `operis/main`, nommée `operis/main__<sujet>` ; PR vers `operis/main`.
 - **Toujours cibler le fork** : sur un fork, `gh pr create` propose par défaut le dépôt d'origine. Utiliser `gh pr create --repo Operis-Fr/ruffle --base operis/main`.
 - Les correctifs génériques (sans rien de propre à Operis) ont vocation à être proposés à upstream, après relecture interne et accord, pour limiter la divergence du fork.
+- **Code généré par LLM** : une grande partie des branches `operis/*` a été écrite avec un assistant LLM. Avant toute PR vers ruffle-rs, appliquer la [AI Tool Use Policy d'upstream](https://github.com/ruffle-rs/ruffle/blob/master/CONTRIBUTING.md#ai-tool-use-policy) (résumée en tête du [README](./README.md)) : PR étiquetée, échanges avec les mainteneurs faits par un humain, PR petites et testées (tests SWF avec sortie Flash Player de référence), pas de PR rebasée avec des merges.
 - Messages de commit en anglais, dans le style d'upstream (`avm2: …`, `core: …`, `web: …`).
 
 ## Se recaler sur upstream
