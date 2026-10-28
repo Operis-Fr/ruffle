@@ -95,9 +95,21 @@ package flash.text.engine {
 
         public native function getAtomIndexAtCharIndex(charIndex:int):int;
 
+        private function checkAtomIndex(index:int):void {
+            if (index < 0 || index >= this.atomCount) {
+                Error.throwError(RangeError, 2006);
+            }
+        }
+
         public function getAtomBidiLevel(index:int):int {
-            stub_method("flash.text.engine.TextLine", "getAtomBidiLevel");
-            return 0;
+            this.checkAtomIndex(index);
+            // Ruffle doesn't support bidirectional text: all atoms are laid
+            // out left-to-right, at the paragraph embedding level.
+            var level:int = this.textBlock != null ? this.textBlock.bidiLevel : 0;
+            if (level % 2 != 0) {
+                stub_method("flash.text.engine.TextLine", "getAtomBidiLevel", "with right-to-left text");
+            }
+            return level;
         }
 
         public native function getAtomBounds(index:int):Rectangle;
@@ -105,7 +117,10 @@ package flash.text.engine {
         public native function getAtomCenter(index:int):Number;
 
         public function getAtomGraphic(index:int):DisplayObject {
-            stub_method("flash.text.engine.TextLine", "getAtomGraphic");
+            this.checkAtomIndex(index);
+            if (this.hasGraphicElement) {
+                stub_method("flash.text.engine.TextLine", "getAtomGraphic", "with graphic elements");
+            }
             return null;
         }
 
@@ -114,7 +129,8 @@ package flash.text.engine {
         public native function getAtomTextBlockEndIndex(index:int):int;
 
         public function getAtomTextRotation(index:int):String {
-            stub_method("flash.text.engine.TextLine", "getAtomTextRotation");
+            this.checkAtomIndex(index);
+            // Text rotation isn't supported by Ruffle's line layout.
             return TextRotation.ROTATE_0;
         }
 
