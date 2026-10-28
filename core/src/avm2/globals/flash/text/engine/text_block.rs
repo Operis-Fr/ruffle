@@ -505,7 +505,13 @@ pub fn do_create_text_line<'gc>(
         width,
     );
 
-    if !line_break.first_atom_fits && !fit_something {
+    // FIXME: Flash Player reports `insufficientWidth` when the first atom of
+    // the line does not fit in the requested width. We only do it when the
+    // width is zero: when nothing else fits, the line holds a single atom.
+    // Spark's `Label` (Flex 4.1) relies on the truncation indicator getting
+    // composed in any width in which the text was composed, otherwise it
+    // throws an error #1069 (it indexes an empty vector).
+    if width == 0.0 && !fit_something {
         block.set_text_line_creation_result(Some(TextLineCreationResultValue::InsufficientWidth));
         return Ok(Value::Null);
     }
@@ -685,9 +691,6 @@ struct LineBreak {
     /// Whether no break opportunity could be found, and the line was broken
     /// in the middle of a word.
     is_emergency: bool,
-
-    /// Whether the first atom of the line fits in the requested width.
-    first_atom_fits: bool,
 }
 
 /// Find where the line laid out from the given range of the text, which is
@@ -708,7 +711,6 @@ fn find_line_break<'gc>(
         return LineBreak {
             position: range.end,
             is_emergency: false,
-            first_atom_fits: true,
         };
     }
 
@@ -731,7 +733,6 @@ fn find_line_break<'gc>(
         return LineBreak {
             position: range.end,
             is_emergency: false,
-            first_atom_fits: true,
         };
     };
 
@@ -744,18 +745,6 @@ fn find_line_break<'gc>(
     {
         position += 1;
     }
-
-    let first_atom_length = if range.len() > 1
-        && matches!(text.at(range.start), 0xD800..=0xDBFF)
-        && matches!(text.at(range.start + 1), 0xDC00..=0xDFFF)
-    {
-        2
-    } else {
-        1
-    };
-    let first_atom_fits = first_line
-        .char_x_bounds(first_atom_length - 1)
-        .is_none_or(|(_, x_max)| x_max <= width);
 
     let is_emergency = position < range.end && {
         let previous = text.at(position - 1);
@@ -770,7 +759,6 @@ fn find_line_break<'gc>(
     LineBreak {
         position,
         is_emergency,
-        first_atom_fits,
     }
 }
 
