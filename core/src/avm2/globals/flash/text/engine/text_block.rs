@@ -491,7 +491,10 @@ pub fn do_create_text_line<'gc>(
     }
 
     // The text of the paragraph, without its separator.
-    let content_end = paragraph_end - line_separator_length(&text[..paragraph_end]);
+    // If the content was changed after creating the previous line, this
+    // line could start in the middle of a CRLF separator.
+    let content_end =
+        (paragraph_end - line_separator_length(&text[..paragraph_end])).max(previous_position);
 
     let movie = *activation.context.root_swf;
     let line_break = find_line_break(
