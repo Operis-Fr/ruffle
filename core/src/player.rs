@@ -857,6 +857,13 @@ impl Player {
                 if let Ok(Value::Object(_)) = obj.get(istr!("menu"), &mut activation) {
                     return Some(display_obj);
                 }
+            } else if display_obj.movie().is_action_script_3()
+                && display_obj
+                    .as_interactive()
+                    .is_some_and(|iobj| iobj.context_menu().as_object().is_some())
+            {
+                // The closest AVM2 interactive object with a context menu owns it.
+                return Some(display_obj);
             }
 
             picked_obj = display_obj.parent();
