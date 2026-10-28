@@ -1,0 +1,12 @@
+num_ticks = 1
+
+[[compilers]]
+type = "Asc"
+target = "test.swf"
+class = "Test"
+scripts = ["Test.as"]
+swf_version = 30
+
+[fonts.noto_sans]
+family = "Noto Sans"
+path = "NotoSans.ttf"
