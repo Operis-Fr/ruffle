@@ -35,7 +35,9 @@ use crate::display_object::{
 };
 use crate::events::GamepadButton;
 use crate::events::PlayerNotification;
-use crate::events::{ButtonKeyCode, ClipEvent, ClipEventResult, KeyCode, MouseButton, PlayerEvent};
+use crate::events::{
+    ButtonKeyCode, ClipEvent, ClipEventResult, KeyCode, MouseButton, PlayerEvent, TextControlCode,
+};
 use crate::external::{ExternalInterface, ExternalInterfaceProvider, NullFsCommandProvider};
 use crate::external::{FsCommandProvider, Value as ExternalValue};
 use crate::focus_tracker::NavigationDirection;
@@ -1360,6 +1362,11 @@ impl Player {
                 if let InputEvent::Ime(ime) = &event {
                     text.ime(ime.clone(), context);
                 }
+            } else if !key_press_handled && let Some(focus) = context.focus_tracker.get() {
+                // A non-text-field object has the focus (e.g. the container of a
+                // Text Layout Framework editor). Flash Player sends it the text input
+                // and clipboard events, and it's up to the object to handle them.
+                Self::dispatch_text_events_to_focus(context, focus, &event);
             }
 
             // KeyPress events also take precedence over tabbing.
@@ -1469,6 +1476,44 @@ impl Player {
         });
 
         player_event_handled
+    }
+
+    /// Dispatch `textInput` and clipboard (`copy`, `cut`, `paste`, `selectAll`)
+    /// events to a focused AVM2 interactive object which is not a text field.
+    fn dispatch_text_events_to_focus<'gc>(
+        context: &mut UpdateContext<'gc>,
+        focus: InteractiveObject<'gc>,
+        event: &InputEvent,
+    ) {
+        let focus = focus.as_displayobject();
+        if !focus.movie().is_action_script_3() {
+            return;
+        }
+        let Some(target) = focus.object2() else {
+            return;
+        };
+
+        match event {
+            InputEvent::TextInput { codepoint } if !codepoint.is_control() => {
+                let mut activation = Avm2Activation::from_nothing(context);
+                let text = AvmString::new_utf8(activation.gc(), codepoint.to_string());
+                let text_event =
+                    Avm2EventObject::text_event(&mut activation, "textInput", text, true, true);
+                Avm2::dispatch_event(activation.context, text_event, target.into());
+            }
+            InputEvent::TextControl { code } => {
+                let event_name = match code {
+                    TextControlCode::Copy => "copy",
+                    TextControlCode::Cut => "cut",
+                    TextControlCode::Paste => "paste",
+                    TextControlCode::SelectAll => "selectAll",
+                    _ => return,
+                };
+                let clipboard_event = Avm2EventObject::bare_event(context, event_name, true, true);
+                Avm2::dispatch_event(context, clipboard_event, target.into());
+            }
+            _ => {}
+        }
     }
 
     fn should_reset_highlight(context: &mut UpdateContext<'_>, event: InputEvent) -> bool {
