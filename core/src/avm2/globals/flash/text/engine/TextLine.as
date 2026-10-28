@@ -45,8 +45,8 @@ package flash.text.engine {
         }
 
         public function get unjustifiedTextWidth():Number {
-            stub_getter("flash.text.engine.TextLine", "unjustifiedTextWidth");
-            return this.specifiedWidth;
+            // Ruffle does not justify lines yet.
+            return this.textWidth;
         }
 
         public native function get textWidth():Number;
@@ -60,74 +60,65 @@ package flash.text.engine {
             return false;
         }
 
-        public function get atomCount():int {
-            stub_getter("flash.text.engine.TextLine", "atomCount");
-            return this.rawTextLength;
-        }
+        public native function get atomCount():int;
 
         public native function get previousLine():TextLine;
         public native function get nextLine():TextLine;
 
         public function getBaselinePosition(baseline:String):Number {
-            stub_method("flash.text.engine.TextLine", "getBaselinePosition");
-            return 0.0;
+            // FIXME: This assumes that the dominant baseline is the roman one.
+            switch (baseline) {
+                case TextBaseline.ROMAN:
+                    return 0.0;
+                case TextBaseline.ASCENT:
+                    return -this.ascent;
+                case TextBaseline.DESCENT:
+                    return this.descent;
+                case TextBaseline.IDEOGRAPHIC_TOP:
+                    stub_method("flash.text.engine.TextLine", "getBaselinePosition", "with ideographic baselines");
+                    return -this.ascent;
+                case TextBaseline.IDEOGRAPHIC_CENTER:
+                    stub_method("flash.text.engine.TextLine", "getBaselinePosition", "with ideographic baselines");
+                    return (this.descent - this.ascent) / 2;
+                case TextBaseline.IDEOGRAPHIC_BOTTOM:
+                    stub_method("flash.text.engine.TextLine", "getBaselinePosition", "with ideographic baselines");
+                    return this.descent;
+                default:
+                    Error.throwError(ArgumentError, 2008, "baseline");
+                    return 0.0;
+            }
         }
 
         public native function get hasTabs():Boolean;
 
-        public function getAtomIndexAtPoint(stageX:Number, stageY:Number):int {
-            stub_method("flash.text.engine.TextLine", "getAtomIndexAtPoint");
-            return -1;
-        }
+        public native function getAtomIndexAtPoint(stageX:Number, stageY:Number):int;
 
-        public function getAtomIndexAtCharIndex(charIndex:int):int {
-            stub_method("flash.text.engine.TextLine", "getAtomIndexAtCharIndex");
-            var index:int = charIndex - this.textBlockBeginIndex;
-            if (index < 0 || index >= this.rawTextLength) {
-                return -1;
-            }
-            return index;
-        }
+        public native function getAtomIndexAtCharIndex(charIndex:int):int;
 
         public function getAtomBidiLevel(index:int):int {
             stub_method("flash.text.engine.TextLine", "getAtomBidiLevel");
             return 0;
         }
 
-        public function getAtomBounds(index:int):Rectangle {
-            stub_method("flash.text.engine.TextLine", "getAtomBounds");
-            return new Rectangle(0, 0, 0, 0);
-        }
+        public native function getAtomBounds(index:int):Rectangle;
 
-        public function getAtomCenter(index:int):Number {
-            stub_method("flash.text.engine.TextLine", "getAtomCenter");
-            return 1.0;
-        }
+        public native function getAtomCenter(index:int):Number;
 
         public function getAtomGraphic(index:int):DisplayObject {
             stub_method("flash.text.engine.TextLine", "getAtomGraphic");
             return null;
         }
 
-        public function getAtomTextBlockBeginIndex(index:int):int {
-            stub_method("flash.text.engine.TextLine", "getAtomTextBlockBeginIndex");
-            return 0;
-        }
+        public native function getAtomTextBlockBeginIndex(index:int):int;
 
-        public function getAtomTextBlockEndIndex(index:int):int {
-            stub_method("flash.text.engine.TextLine", "getAtomTextBlockEndIndex");
-            return 0;
-        }
+        public native function getAtomTextBlockEndIndex(index:int):int;
 
         public function getAtomTextRotation(index:int):String {
             stub_method("flash.text.engine.TextLine", "getAtomTextRotation");
             return TextRotation.ROTATE_0;
         }
 
-        public function getAtomWordBoundaryOnLeft(index:int):Boolean {
-            stub_method("flash.text.engine.TextLine", "getAtomWordBoundaryOnLeft");
-            return false;
-        }
+        public native function getAtomWordBoundaryOnLeft(index:int):Boolean;
 
         // This function does nothing in Flash Player 32
         public function flushAtomData():void { }

@@ -11,12 +11,16 @@ use crate::avm2::object::{ContentElementObject, ElementData, VectorObject};
 use crate::avm2::parameters::ParametersExt;
 use crate::avm2::value::Value;
 use crate::display_object::{DisplayObject, EditText, TDisplayObject, TextLine};
+use crate::font::FontType;
 use crate::fte::boundaries;
 use crate::fte::{TextBaselineValue, TextLineCreationResultValue, TextRotationValue};
-use crate::html::{FormatSpans, TextFormat, TextSpan};
-use crate::string::{AvmString, WStr, WString};
+use crate::html::{self, FormatSpans, TextSpan};
+use crate::string::{AvmString, WStr, WString, utils as string_utils};
+use crate::tag_utils::SwfMovie;
 use crate::{avm2_stub_getter, avm2_stub_setter};
 use ruffle_macros::istr;
+use std::ops::Range;
+use swf::Twips;
 
 pub use crate::avm2::object::text_block_allocator;
 
@@ -519,6 +523,7 @@ pub fn do_create_text_line<'gc>(
         .and_then(|o| o.as_text_line());
 
     let width = args.get_f64(2);
+    let fit_something = args.get_bool(4);
 
     let content = block.content().expect("Guaranteed by AS checks");
 
@@ -541,7 +546,6 @@ pub fn do_create_text_line<'gc>(
         }
     };
 
-    // TODO don't discard the formatting
     let text = spans.text();
 
     if previous_position > text.len() {
@@ -550,13 +554,40 @@ pub fn do_create_text_line<'gc>(
         return Ok(Value::Null);
     }
 
-    let next_position = next_line_break(text, previous_position);
+    let paragraph_end = next_line_break(text, previous_position);
 
-    if text.is_empty() || next_position == text.len() && previous_position == next_position {
+    if text.is_empty() || paragraph_end == text.len() && previous_position == paragraph_end {
         // No more text.
         block.set_text_line_creation_result(Some(TextLineCreationResultValue::Complete));
         return Ok(Value::Null);
     }
+
+    // The text of the paragraph, without its separator.
+    // If the content was changed after creating the previous line, this
+    // line could start in the middle of a CRLF separator.
+    let content_end =
+        (paragraph_end - line_separator_length(&text[..paragraph_end])).max(previous_position);
+
+    let movie = *activation.context.root_swf;
+    let line_break = find_line_break(
+        activation,
+        movie,
+        &spans,
+        previous_position..content_end,
+        width,
+    );
+
+    if !line_break.first_atom_fits && !fit_something {
+        block.set_text_line_creation_result(Some(TextLineCreationResultValue::InsufficientWidth));
+        return Ok(Value::Null);
+    }
+
+    let next_position = if line_break.position >= content_end {
+        // The rest of the paragraph fits: the line includes the separator.
+        paragraph_end
+    } else {
+        line_break.position
+    };
 
     let line_index = if let Some(previous_text_line) = previous_text_line {
         previous_text_line.line_index() + 1
@@ -579,26 +610,14 @@ pub fn do_create_text_line<'gc>(
     };
 
     let text_line_instance = text_line.object2().expect("Already created the object2");
-    let fallback = text_line.fallback();
 
-    let subtext = &text[previous_position..next_position];
-
-    fallback.set_text(subtext, activation.context);
-
-    let format = spans
-        .span(0)
-        .expect("Non-empty text should have at least one span")
-        .get_text_format();
-
-    apply_format(activation, fallback, format, line_index);
-
-    // FIXME: This needs to use `intrinsic_bounds` to measure the width
-    // of the provided text, and set the width of the EditText to that.
-    // Some games depend on this (e.g. Realm Grinder).
+    let displayed_end = next_position.min(content_end);
+    let line_spans = slice_spans(&spans, previous_position..displayed_end);
+    text_line.set_content(line_spans, activation.context);
 
     text_line.set_text_block(Some(block), activation.gc());
     text_line.set_specified_width(width);
-    text_line.set_raw_text_length(subtext.len() as u32);
+    text_line.set_raw_text_length((next_position - previous_position) as u32);
     text_line.set_begin_index(previous_position as u32);
     text_line.set_end_index(next_position as u32);
     text_line.set_line_index(line_index);
@@ -614,7 +633,12 @@ pub fn do_create_text_line<'gc>(
     // TODO correctly set the `validity`, `nextLine`, and `prevLine` properties
     // of the lines coming after this line
 
-    block.set_text_line_creation_result(Some(TextLineCreationResultValue::Success));
+    let result = if line_break.is_emergency {
+        TextLineCreationResultValue::Emergency
+    } else {
+        TextLineCreationResultValue::Success
+    };
+    block.set_text_line_creation_result(Some(result));
 
     Ok(text_line_instance.into())
 }
@@ -711,26 +735,141 @@ fn next_line_break(text: &WStr, start: usize) -> usize {
     }
 }
 
-fn apply_format<'gc>(
+/// Returns the length of the line separator ending the given text, if any.
+fn line_separator_length(text: &WStr) -> usize {
+    let Some(last) = text.len().checked_sub(1).map(|i| text.at(i)) else {
+        return 0;
+    };
+
+    match last {
+        0x0A if text.len() >= 2 && text.at(text.len() - 2) == 0x0D => 2,
+        0x0A | 0x0D | 0x2028 | 0x2029 => 1,
+        _ => 0,
+    }
+}
+
+/// The result of breaking a paragraph into a line.
+struct LineBreak {
+    /// The position at which the line ends. It is equal to the end of the
+    /// paragraph when all of its remaining text fits on the line.
+    position: usize,
+
+    /// Whether no break opportunity could be found, and the line was broken
+    /// in the middle of a word.
+    is_emergency: bool,
+
+    /// Whether the first atom of the line fits in the requested width.
+    first_atom_fits: bool,
+}
+
+/// Find where the line laid out from the given range of the text, which is
+/// a paragraph (or the end of one) without its separator, has to be broken
+/// to fit in `width`.
+///
+/// This reuses the layout engine of `TextField`s, which breaks lines after
+/// spaces and dashes, and otherwise in the middle of a word when nothing else
+/// fits.
+fn find_line_break<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    edit_text: EditText<'gc>,
-    format: TextFormat,
-    line_index: u32,
-) {
-    // TODO: Handle device font/non-device font properly
-    edit_text.set_is_device_font(activation.context, false);
-    edit_text.set_text_format(
-        0,
-        edit_text.text_length(),
-        format.clone(),
+    movie: SwfMovie<'gc>,
+    spans: &FormatSpans,
+    range: Range<usize>,
+    width: f64,
+) -> LineBreak {
+    if range.is_empty() {
+        return LineBreak {
+            position: range.end,
+            is_emergency: false,
+            first_atom_fits: true,
+        };
+    }
+
+    let text = spans.text();
+    let paragraph = slice_spans(spans, range.clone());
+    let width = Twips::from_pixels(width);
+    let layout = html::lower_from_text_spans(
+        &paragraph,
         activation.context,
+        html::LayoutParams {
+            movie,
+            is_input: false,
+            is_word_wrap: true,
+            font_type: FontType::EmbeddedCFF,
+        },
+        Some(width),
     );
-    edit_text.set_new_text_format(format);
 
-    edit_text.set_word_wrap(true, activation.context);
+    let Some(first_line) = layout.lines().first() else {
+        return LineBreak {
+            position: range.end,
+            is_emergency: false,
+            first_atom_fits: true,
+        };
+    };
 
-    let measured_text = edit_text.measure_text(activation.context);
+    // The layout engine may cut a surrogate pair in half when the first
+    // character does not fit.
+    let mut position = range.start + first_line.end().clamp(1, range.len());
+    if position < range.end
+        && matches!(text.at(position - 1), 0xD800..=0xDBFF)
+        && matches!(text.at(position), 0xDC00..=0xDFFF)
+    {
+        position += 1;
+    }
 
-    edit_text.set_height(activation.context, measured_text.1.to_pixels());
-    edit_text.set_y(measured_text.1 * line_index as i32);
+    let first_atom_length = if range.len() > 1
+        && matches!(text.at(range.start), 0xD800..=0xDBFF)
+        && matches!(text.at(range.start + 1), 0xDC00..=0xDFFF)
+    {
+        2
+    } else {
+        1
+    };
+    let first_atom_fits = first_line
+        .char_x_bounds(first_atom_length - 1)
+        .is_none_or(|(_, x_max)| x_max <= width);
+
+    let is_emergency = position < range.end && {
+        let previous = text.at(position - 1);
+        let next = text.at(position);
+        let is_opportunity = |c: u16| {
+            char::from_u32(c.into())
+                .is_some_and(|c| c.is_whitespace() || c == '-' || string_utils::swf_is_cjk_like(c))
+        };
+        !is_opportunity(previous) && !is_opportunity(next)
+    };
+
+    LineBreak {
+        position,
+        is_emergency,
+        first_atom_fits,
+    }
+}
+
+/// Extract the given range of the text and its formatting.
+fn slice_spans(spans: &FormatSpans, range: Range<usize>) -> FormatSpans {
+    let mut sliced_spans = Vec::new();
+    let mut last_span = None;
+    for (start, end, _text, span) in spans.iter_spans() {
+        last_span = Some(span);
+        if start > range.start && start >= range.end {
+            break;
+        }
+
+        let length = end.min(range.end).saturating_sub(start.max(range.start));
+        if length > 0 {
+            let mut span = span.clone();
+            span.span_length = length;
+            sliced_spans.push(span);
+        }
+    }
+
+    if sliced_spans.is_empty() {
+        // An empty line still has the format of the text around it.
+        let mut span = last_span.cloned().unwrap_or_default();
+        span.span_length = 0;
+        sliced_spans.push(span);
+    }
+
+    FormatSpans::from_str_and_spans(&spans.text()[range], &sliced_spans)
 }
