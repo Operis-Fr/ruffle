@@ -1503,6 +1503,13 @@ impl Player {
 
         match event {
             InputEvent::TextInput { codepoint } if !codepoint.is_control() => {
+                // Control shortcuts (e.g. Ctrl+Z) don't input text, but AltGr
+                // (reported as Ctrl+Alt on some platforms) does.
+                if context.input.is_key_down(KeyCode::CONTROL)
+                    && !context.input.is_key_down(KeyCode::ALT)
+                {
+                    return;
+                }
                 let mut activation = Avm2Activation::from_nothing(context);
                 let text = AvmString::new_utf8(activation.gc(), codepoint.to_string());
                 let text_event =
