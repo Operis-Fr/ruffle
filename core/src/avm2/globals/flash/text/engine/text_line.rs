@@ -8,7 +8,7 @@ use crate::fte::TextLineValidity;
 use ruffle_macros::istr;
 
 pub fn get_text_width<'gc>(
-    activation: &mut Activation<'_, 'gc>,
+    _activation: &mut Activation<'_, 'gc>,
     this: Value<'gc>,
     _args: FunctionArgs<'_, 'gc>,
 ) -> Result<Value<'gc>, Error<'gc>> {
@@ -18,8 +18,7 @@ pub fn get_text_width<'gc>(
         return Ok(0.0.into());
     };
 
-    let measured_text = text_line.measure_text(activation.context);
-    Ok(measured_text.0.to_pixels().into())
+    Ok(text_line.text_width().into())
 }
 
 pub fn get_has_tabs<'gc>(
@@ -224,7 +223,7 @@ pub fn get_next_line<'gc>(
 }
 
 pub fn get_text_height<'gc>(
-    activation: &mut Activation<'_, 'gc>,
+    _activation: &mut Activation<'_, 'gc>,
     this: Value<'gc>,
     _args: FunctionArgs<'_, 'gc>,
 ) -> Result<Value<'gc>, Error<'gc>> {
@@ -234,6 +233,5 @@ pub fn get_text_height<'gc>(
         return Ok(0.0.into());
     };
 
-    let measured_text = text_line.measure_text(activation.context);
-    Ok(measured_text.1.to_pixels().into())
+    Ok(text_line.text_height().into())
 }

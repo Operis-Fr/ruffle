@@ -11,6 +11,7 @@ use crate::display_object::{
 };
 use crate::events::{ClipEvent, ClipEventResult};
 use crate::fte::TextLineValidity;
+use crate::html::FormatSpans;
 use crate::prelude::*;
 use crate::tag_utils::SwfMovie;
 use crate::vminterface::Instantiator;
@@ -148,23 +149,53 @@ impl<'gc> TextLine<'gc> {
         self.set_next_line(None, mc);
     }
 
-    pub fn measure_text(self, context: &mut UpdateContext<'gc>) -> (Twips, Twips) {
-        self.0.fallback.measure_text(context)
+    /// Set the text displayed by this line.
+    ///
+    /// The spans must not contain the line separator (if any) ending the line.
+    pub fn set_content(self, spans: FormatSpans, context: &mut UpdateContext<'gc>) {
+        self.0.fallback.set_fte_content(spans, context);
     }
 
     pub fn has_tabs(self) -> bool {
         self.0.fallback.text().contains(b'\t')
     }
 
-    /// Returns the laid-out line's `(ascent, descent)`.
-    pub fn metrics(self) -> (f64, f64) {
+    /// Returns the laid-out line's `(ascent, descent)`, in twips.
+    fn metrics_twips(self) -> (Twips, Twips) {
         let layout = self.0.fallback.layout();
         let Some(line) = layout.lines().first() else {
             debug_assert!(false, "Should not be reachable");
             return Default::default();
         };
 
-        (line.ascent().to_pixels(), line.descent().to_pixels())
+        (line.ascent(), line.descent())
+    }
+
+    /// Returns the laid-out line's `(ascent, descent)`.
+    pub fn metrics(self) -> (f64, f64) {
+        let (ascent, descent) = self.metrics_twips();
+        (ascent.to_pixels(), descent.to_pixels())
+    }
+
+    /// The logical width of the text of this line, trailing spaces included.
+    fn text_width_twips(self) -> Twips {
+        let layout = self.0.fallback.layout();
+        layout
+            .lines()
+            .first()
+            .map(|line| line.bounds().extent_x().max(Twips::ZERO))
+            .unwrap_or_default()
+    }
+
+    /// The logical width of the text of this line, trailing spaces included.
+    pub fn text_width(self) -> f64 {
+        self.text_width_twips().to_pixels()
+    }
+
+    /// The logical height of this line, which is `ascent + descent`.
+    pub fn text_height(self) -> f64 {
+        let (ascent, descent) = self.metrics_twips();
+        (ascent + descent).to_pixels()
     }
 
     pub fn fallback(self) -> EditText<'gc> {
@@ -293,8 +324,15 @@ impl<'gc> TDisplayObject<'gc> for TextLine<'gc> {
         self.0.fallback.render_self(context);
     }
 
-    fn self_bounds(self, mode: BoundsMode) -> Rectangle<Twips> {
-        self.0.fallback.self_bounds(mode)
+    fn self_bounds(self, _mode: BoundsMode) -> Rectangle<Twips> {
+        // The origin of a line is at the start of its baseline.
+        let (ascent, descent) = self.metrics_twips();
+        Rectangle {
+            x_min: Twips::ZERO,
+            y_min: -ascent,
+            x_max: self.text_width_twips(),
+            y_max: descent,
+        }
     }
 
     fn hit_test_shape(

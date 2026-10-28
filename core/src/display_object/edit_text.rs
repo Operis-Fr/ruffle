@@ -405,6 +405,8 @@ impl<'gc> EditText<'gc> {
         let text = Self::new(context, swf_movie, x, y, width, height);
         text.set_is_fte(true);
         text.set_selectable(false);
+        // TODO: Handle device font/non-device font properly
+        text.set_is_device_font(context, false);
 
         text
     }
@@ -748,6 +750,39 @@ impl<'gc> EditText<'gc> {
 
     pub fn set_is_fte(self, is_fte: bool) {
         self.0.is_fte.set(is_fte);
+    }
+
+    /// Replace the content of this FTE text field with the given spans.
+    ///
+    /// The spans are expected to fit on a single line (line breaking is the
+    /// responsibility of the `TextBlock`). The bounds of this text field are
+    /// then set so that the origin of its local coordinate space lies at the
+    /// start of the baseline of the text, which is where FTE places the
+    /// origin of a `TextLine`.
+    pub fn set_fte_content(self, spans: FormatSpans, context: &mut UpdateContext<'gc>) {
+        self.0.text_spans.replace(spans);
+        self.relayout(context);
+
+        let (ascent, descent, width) = self
+            .0
+            .layout
+            .borrow()
+            .lines()
+            .first()
+            .map(|line| (line.ascent(), line.descent(), line.bounds().extent_x()))
+            .unwrap_or_default();
+
+        // Text is laid out at (GUTTER, GUTTER) from the top-left corner of
+        // the bounds. The gutter on the right is left visible, so that glyphs
+        // overhanging their advance are not clipped.
+        self.0.autosize_lazy_bounds.set(None);
+        self.0.bounds.set(Rectangle {
+            x_min: -Self::GUTTER,
+            y_min: -ascent - Self::GUTTER,
+            x_max: width.max(Twips::ZERO) + Self::GUTTER * 2,
+            y_max: descent + Self::GUTTER,
+        });
+        self.invalidate_cached_bitmap();
     }
 
     pub fn layout_debug_boxes_flag(self, flag: LayoutDebugBoxesFlag) -> bool {
