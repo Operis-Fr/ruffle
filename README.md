@@ -1,3 +1,13 @@
+> [!NOTE]
+> **Fork Operis** de [ruffle-rs/ruffle](https://github.com/ruffle-rs/ruffle) : branches, règles de contribution et compilation dans [OPERIS.md](./OPERIS.md).
+>
+> **Code généré par LLM : règles d'upstream à respecter** pour toute contribution proposée à ruffle-rs ([AI Tool Use Policy](https://github.com/ruffle-rs/ruffle/blob/master/CONTRIBUTING.md#ai-tool-use-policy), fondée sur la [LLVM AI Tool Use Policy](https://llvm.org/docs/AIToolPolicy.html)) :
+>
+> 1. Les Pull Requests contenant du code généré par LLM doivent être **étiquetées** comme telles.
+> 2. **Pas de LLM pour échanger avec les mainteneurs** : discussions et réponses aux questions sont faites par un humain.
+> 3. **Respecter le temps des mainteneurs** : le contributeur applique lui-même toutes les règles ; une contribution qui demande trop d'efforts peut être ignorée ou rejetée.
+> 4. **Pas de « déversement » de code généré** : pas de PR de centaines ou milliers de lignes non testées « qui font marcher un SWF » ; découper, tester (tests SWF avec sortie Flash Player de référence) et suivre le [CONTRIBUTING.md](https://github.com/ruffle-rs/ruffle/blob/master/CONTRIBUTING.md) d'upstream.
+
 <p align="center">
   <a href="https://ruffle.rs"><img alt="Ruffle" src="https://ruffle.rs/logo.svg" /></a>
 </p>
