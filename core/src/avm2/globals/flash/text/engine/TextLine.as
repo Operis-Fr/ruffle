@@ -45,8 +45,8 @@ package flash.text.engine {
         }
 
         public function get unjustifiedTextWidth():Number {
-            stub_getter("flash.text.engine.TextLine", "unjustifiedTextWidth");
-            return this.specifiedWidth;
+            // Ruffle does not justify lines yet.
+            return this.textWidth;
         }
 
         public native function get textWidth():Number;
