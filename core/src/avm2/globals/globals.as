@@ -21,6 +21,8 @@ include "flash/accessibility/ISimpleTextSelection.as"
 include "flash/events/IEventDispatcher.as"
 include "flash/events/EventDispatcher.as"
 
+include "adobe/utils/ProductManager.as"
+
 include "flash/automation/AutomationAction.as"
 include "flash/automation/KeyboardAutomationAction.as"
 include "flash/automation/MouseAutomationAction.as"
