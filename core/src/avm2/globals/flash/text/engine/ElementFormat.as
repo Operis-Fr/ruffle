@@ -1,5 +1,4 @@
 package flash.text.engine {
-    import __ruffle__.stub_method;
 
     import flash.geom.Rectangle;
 
@@ -122,11 +121,36 @@ package flash.text.engine {
         }
 
         public function getFontMetrics():FontMetrics {
-            stub_method("flash.text.engine.ElementFormat", "getFontMetrics");
-            var emBox:Rectangle = new Rectangle(0, this.fontSize * -0.8, this.fontSize, this.fontSize);
+            var size:Number = this.fontSize;
+
+            // The em box is a square of the size of the font, positioned
+            // according to the ascent and descent of the font.
+            var ascentAndDescent:Array = this.getFontAscentAndDescent();
+            var ascent:Number = ascentAndDescent[0];
+            var descent:Number = ascentAndDescent[1];
+            var emBoxTop:Number = ascent + descent > 0
+                ? -size * ascent / (ascent + descent)
+                : -size * 0.8;
+            var emBox:Rectangle = new Rectangle(0, emBoxTop, size, size);
+
+            // TODO: Ruffle does not read the decoration and script metrics of
+            // fonts yet, use typical values (those of Arial) instead.
             return new FontMetrics(
-                emBox, -5, 1.2, 1.8, 1.2, 0.075, 0.6, -0.35, 0.6, 0.0
+                emBox,
+                -0.26 * size, // strikethroughOffset
+                0.05 * size, // strikethroughThickness
+                0.106 * size, // underlineOffset
+                0.073 * size, // underlineThickness
+                0.14 * size, // subscriptOffset
+                0.65, // subscriptScale
+                -0.48 * size, // superscriptOffset
+                0.65, // superscriptScale
+                0.0 // lineGap
             );
         }
+
+        // Returns the ascent and descent, in pixels, of the font described by
+        // this format, as used to lay out text lines.
+        private native function getFontAscentAndDescent():Array;
     }
 }

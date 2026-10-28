@@ -1,13 +1,20 @@
 use crate::avm2::activation::Activation;
+use crate::avm2::array::ArrayStorage;
 use crate::avm2::error::{Error2004Type, make_error_2004, make_error_2008};
 use crate::avm2::function::FunctionArgs;
+use crate::avm2::object::ArrayObject;
 use crate::avm2::parameters::ParametersExt;
 use crate::avm2::value::Value;
 use crate::avm2::{Avm2StrRepresentable, Error};
+use crate::font::FontType;
 use crate::fte::{
     BreakOpportunityValue, DigitCaseValue, DigitWidthValue, KerningValue, LigatureLevelValue,
     TextBaselineValue, TextRotationValue, TypographicCaseValue,
 };
+use crate::html::{self, FormatSpans, TextSpan};
+use crate::string::WStr;
+
+use swf::Twips;
 
 pub use crate::avm2::object::element_format_allocator;
 
@@ -546,4 +553,43 @@ pub fn set_locked<'gc>(
         .unwrap();
     this.set_locked(args.get_bool(0));
     Ok(Value::Undefined)
+}
+
+pub fn get_font_ascent_and_descent<'gc>(
+    activation: &mut Activation<'_, 'gc>,
+    this: Value<'gc>,
+    _args: FunctionArgs<'_, 'gc>,
+) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this
+        .as_object()
+        .unwrap()
+        .as_element_format_object()
+        .unwrap();
+
+    // Lay out an empty line with this format, in the same way as `TextLine`s
+    // are laid out, to resolve the font and get its metrics.
+    let format = this.as_text_format();
+    let span = TextSpan::with_length_and_format(0, &format);
+    let spans = FormatSpans::from_str_and_spans(WStr::empty(), &[span]);
+    let movie = *activation.context.root_swf;
+    let layout = html::lower_from_text_spans(
+        &spans,
+        activation.context,
+        html::LayoutParams {
+            movie,
+            is_input: false,
+            is_word_wrap: false,
+            font_type: FontType::EmbeddedCFF,
+        },
+        Some(Twips::ZERO),
+    );
+
+    let (ascent, descent) = layout
+        .lines()
+        .first()
+        .map(|line| (line.ascent().to_pixels(), line.descent().to_pixels()))
+        .unwrap_or_default();
+
+    let storage = ArrayStorage::from_args(&[ascent.into(), descent.into()]);
+    Ok(ArrayObject::from_storage(activation.context, storage).into())
 }
