@@ -16,7 +16,6 @@ use external_interface::{external_to_js_value, js_to_external_value};
 use input::{web_input_to_ruffle_key_descriptor, web_to_ruffle_text_control};
 use js_sys::{Error as JsError, Uint8Array};
 use ruffle_core::context::UpdateContext;
-use ruffle_core::context_menu::ContextMenuCallback;
 use ruffle_core::events::{GamepadButton, MouseButton, MouseWheelDelta, TextControlCode};
 use ruffle_core::tag_utils::SwfMovieData;
 use ruffle_core::{FloatDuration, Player, PlayerEvent, StaticCallstack, ViewportDimensions};
@@ -391,16 +390,10 @@ impl RuffleHandle {
         let is_paste = self
             .with_core_mut(|core| {
                 let is_paste = core.mutate_with_update_context(|context| {
-                    matches!(
-                        context
-                            .current_context_menu
-                            .as_ref()
-                            .map(|menu| menu.callback(index)),
-                        Some(ContextMenuCallback::TextControl {
-                            code: TextControlCode::Paste,
-                            ..
-                        })
-                    )
+                    context
+                        .current_context_menu
+                        .as_ref()
+                        .is_some_and(|menu| menu.callback(index).is_paste())
                 });
                 if !is_paste {
                     core.run_context_menu_callback(index)

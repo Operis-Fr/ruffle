@@ -7,11 +7,13 @@ package flash.ui {
         [Ruffle(NativeAccessible)]
         private var _customItems:Array;
 
+        [Ruffle(NativeAccessible)]
         private var _clipboardMenu:Boolean;
 
         [Ruffle(NativeAccessible)]
         private var _builtInItems:ContextMenuBuiltInItems = new ContextMenuBuiltInItems();
 
+        [Ruffle(NativeAccessible)]
         private var _clipboardItems:ContextMenuClipboardItems = new ContextMenuClipboardItems();
 
         public function ContextMenu() {

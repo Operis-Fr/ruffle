@@ -802,6 +802,14 @@ impl Player {
                     ContextMenuCallback::TextControl { code, text } => {
                         text.text_control_input(*code, context)
                     }
+                    ContextMenuCallback::Avm2Clipboard { code, target } => {
+                        let target = *target;
+                        if let Some(event_name) = Self::clipboard_event_name(*code) {
+                            let event =
+                                Avm2EventObject::bare_event(context, event_name, true, true);
+                            Avm2::dispatch_event(context, event, target);
+                        }
+                    }
                     _ => {}
                 }
                 Self::run_actions(context);
@@ -1501,19 +1509,34 @@ impl Player {
                     Avm2EventObject::text_event(&mut activation, "textInput", text, true, true);
                 Avm2::dispatch_event(activation.context, text_event, target.into());
             }
-            InputEvent::TextControl { code } => {
-                let event_name = match code {
-                    TextControlCode::Copy => "copy",
-                    TextControlCode::Cut => "cut",
-                    TextControlCode::Paste => "paste",
-                    TextControlCode::SelectAll => "selectAll",
-                    _ => return,
+            InputEvent::TextControl {
+                code:
+                    code @ (TextControlCode::Copy
+                    | TextControlCode::Cut
+                    | TextControlCode::Paste
+                    | TextControlCode::SelectAll),
+            } => {
+                let Some(event_name) = Self::clipboard_event_name(*code) else {
+                    return;
                 };
                 let clipboard_event = Avm2EventObject::bare_event(context, event_name, true, true);
                 Avm2::dispatch_event(context, clipboard_event, target.into());
             }
             _ => {}
         }
+    }
+
+    /// The name of the AVM2 clipboard event corresponding to a text control
+    /// code (with `Delete` corresponding to the `clear` menu item).
+    fn clipboard_event_name(code: TextControlCode) -> Option<&'static str> {
+        Some(match code {
+            TextControlCode::Copy => "copy",
+            TextControlCode::Cut => "cut",
+            TextControlCode::Paste => "paste",
+            TextControlCode::Delete => "clear",
+            TextControlCode::SelectAll => "selectAll",
+            _ => return None,
+        })
     }
 
     fn should_reset_highlight(context: &mut UpdateContext<'_>, event: InputEvent) -> bool {
