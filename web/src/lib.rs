@@ -5,6 +5,7 @@ mod audio;
 mod builder;
 mod external_interface;
 mod input;
+mod local_connection;
 mod log_adapter;
 mod navigator;
 mod storage;
@@ -14,7 +15,8 @@ mod zip;
 use crate::builder::RuffleInstanceBuilder;
 use external_interface::{external_to_js_value, js_to_external_value};
 use input::{web_input_to_ruffle_key_descriptor, web_to_ruffle_text_control};
-use js_sys::{Error as JsError, Uint8Array};
+use js_sys::{Array, Error as JsError, Uint8Array};
+use local_connection::{amf_to_js_value, js_to_amf_value};
 use ruffle_core::context::UpdateContext;
 use ruffle_core::events::{GamepadButton, MouseButton, MouseWheelDelta, TextControlCode};
 use ruffle_core::tag_utils::SwfMovieData;
@@ -153,6 +155,21 @@ unsafe extern "C" {
 
     #[wasm_bindgen(method, js_name = "onCallbackAvailable")]
     fn on_callback_available(this: &JavascriptPlayer, name: &str);
+
+    #[wasm_bindgen(method, catch, js_name = "callExternalInterfaceHandler")]
+    fn call_external_interface_handler(
+        this: &JavascriptPlayer,
+        name: &str,
+        args: Array,
+    ) -> Result<JsValue, JsValue>;
+
+    #[wasm_bindgen(method, js_name = "onLocalConnectionMessage")]
+    fn on_local_connection_message(
+        this: &JavascriptPlayer,
+        connection_name: &str,
+        method_name: &str,
+        arguments: Array,
+    );
 
     #[wasm_bindgen(method, js_name = "getObjectId")]
     fn get_object_id(this: &JavascriptPlayer) -> Option<String>;
@@ -482,6 +499,32 @@ impl RuffleHandle {
 
         self.with_core_mut(|core| external_to_js_value(core.call_internal_interface(name, args)))
             .unwrap_or(JsValue::UNDEFINED)
+    }
+
+    /// Listens on a `LocalConnection` name from JavaScript: messages that movies send
+    /// to it are passed to `onLocalConnectionMessage` after the frame.
+    /// Returns `false` if the name is already in use.
+    pub fn local_connection_listen(&self, name: &str) -> bool {
+        self.with_core_mut(|core| core.connect_external_local_connection(name))
+            .unwrap_or(false)
+    }
+
+    /// Stops listening on a name opened by `local_connection_listen`.
+    pub fn local_connection_close(&self, name: &str) {
+        let _ = self.with_core_mut(|core| core.close_external_local_connection(name));
+    }
+
+    /// Sends a `LocalConnection` message from JavaScript to a movie's connection.
+    pub fn local_connection_send(
+        &self,
+        name: &str,
+        method_name: &str,
+        #[expect(clippy::boxed_local)] // for js_bind
+        args: Box<[JsValue]>,
+    ) {
+        let args = args.iter().map(js_to_amf_value).collect();
+        let _ =
+            self.with_core_mut(|core| core.send_external_local_connection(name, method_name, args));
     }
 
     pub fn set_trace_observer(&self, observer: JsValue) {
@@ -1218,6 +1261,7 @@ impl RuffleHandle {
         });
 
         // Tick the Ruffle core.
+        let mut local_connection_messages = Vec::new();
         let _ = self.with_core_mut(|core| {
             for event in gamepad_button_events {
                 core.handle_event(event);
@@ -1242,7 +1286,24 @@ impl RuffleHandle {
             if core.needs_render() || new_dimensions.is_some() {
                 core.render();
             }
+
+            local_connection_messages = core.take_external_local_connection_messages();
         });
+
+        // Deliver LocalConnection messages to JavaScript once the core is unlocked,
+        // so that the handlers can answer right away.
+        if !local_connection_messages.is_empty() {
+            let _ = self.with_instance(|instance| {
+                for message in &local_connection_messages {
+                    let arguments: Array = message.arguments.iter().map(amf_to_js_value).collect();
+                    instance.js_player.on_local_connection_message(
+                        &message.connection_name,
+                        &message.method_name,
+                        arguments,
+                    );
+                }
+            });
+        }
     }
 
     fn on_metadata(self, swf_header: &ruffle_core::swf::HeaderExt) {
