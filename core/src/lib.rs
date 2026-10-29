@@ -60,8 +60,10 @@ pub mod stub;
 
 pub use context_menu::ContextMenuItem;
 pub use events::PlayerEvent;
+pub use flash_lso::types::{Element as AmfElement, ObjectId as AmfObjectId, Value as AmfValue};
 pub use indexmap;
 pub use loader::LoadBehavior;
+pub use local_connection::ExternalLocalConnectionMessage;
 pub use player::{Player, PlayerBuilder, PlayerMode, PlayerRuntime, StaticCallstack};
 pub use ruffle_common::duration::FloatDuration;
 pub use ruffle_render::backend::ViewportDimensions;

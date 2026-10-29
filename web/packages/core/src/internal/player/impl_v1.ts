@@ -4,7 +4,11 @@ import type {
     DataLoadOptions,
     URLLoadOptions,
 } from "../../public/config/index.js";
-import type { MovieMetadata } from "../../public/player/index.js";
+import type {
+    ExternalInterfaceHandler,
+    LocalConnectionHandler,
+    MovieMetadata,
+} from "../../public/player/index.js";
 
 export class PlayerV1Impl implements PlayerV1 {
     #inner: InnerPlayer;
@@ -106,5 +110,32 @@ export class PlayerV1Impl implements PlayerV1 {
 
     callExternalInterface(name: string, ...args: unknown[]): unknown {
         return this.#inner.callExternalInterface(name, args);
+    }
+
+    localConnectionListen(
+        name: string,
+        handler: LocalConnectionHandler,
+    ): boolean {
+        return this.#inner.localConnectionListen(name, handler);
+    }
+
+    localConnectionSend(
+        name: string,
+        methodName: string,
+        ...args: unknown[]
+    ): boolean {
+        return this.#inner.localConnectionSend(name, methodName, args);
+    }
+
+    localConnectionClose(name: string): void {
+        this.#inner.localConnectionClose(name);
+    }
+
+    get externalInterfaceHandler(): ExternalInterfaceHandler | null {
+        return this.#inner.externalInterfaceHandler;
+    }
+
+    set externalInterfaceHandler(handler: ExternalInterfaceHandler | null) {
+        this.#inner.externalInterfaceHandler = handler;
     }
 }

@@ -17,6 +17,18 @@ use std::borrow::Cow;
 pub enum LocalConnectionKind<'gc> {
     Avm2(Avm2Domain<'gc>, LocalConnectionObject<'gc>),
     Avm1(Avm1Object<'gc>),
+    /// A connection owned by the embedder (e.g. JavaScript on the web).
+    /// Messages sent to it are queued, see [`LocalConnections::take_external_messages`].
+    External,
+}
+
+/// A message sent by a movie to a connection owned by the embedder.
+pub struct ExternalLocalConnectionMessage {
+    /// The connection name, normalized as for any connection (lowercase,
+    /// prefixed with the superdomain unless it starts with an underscore).
+    pub connection_name: String,
+    pub method_name: String,
+    pub arguments: Vec<AmfValue>,
 }
 
 impl<'gc> From<(Avm2Domain<'gc>, LocalConnectionObject<'gc>)> for LocalConnectionKind<'gc> {
@@ -42,16 +54,28 @@ impl<'gc> LocalConnectionKind<'gc> {
                     tracing::error!("Unhandled AVM1 error during LocalConnection onStatus: {e}");
                 }
             }
+            LocalConnectionKind::External => {}
         }
     }
 
     pub fn run_method(
         &self,
         context: &mut UpdateContext<'gc>,
+        connection_name: &WStr,
         method_name: AvmString<'gc>,
         arguments: Vec<AmfValue>,
     ) {
         match self {
+            LocalConnectionKind::External => {
+                context
+                    .local_connections
+                    .external_messages
+                    .push(ExternalLocalConnectionMessage {
+                        connection_name: connection_name.to_string(),
+                        method_name: method_name.to_string(),
+                        arguments,
+                    });
+            }
             LocalConnectionKind::Avm2(domain, object) => {
                 object.run_method(context, *domain, method_name, arguments);
             }
@@ -99,7 +123,7 @@ impl<'gc> QueuedMessageKind<'gc> {
             } => {
                 if let Some(receiver) = context.local_connections.find_listener(&connection_name) {
                     source.send_status(istr!(context, "status"), context);
-                    receiver.run_method(context, method_name, arguments);
+                    receiver.run_method(context, &connection_name, method_name, arguments);
                 } else {
                     source.send_status(istr!(context, "error"), context);
                 }
@@ -118,6 +142,8 @@ pub struct LocalConnectionHandle(WString);
 pub struct LocalConnections<'gc> {
     connections: FnvHashMap<WString, LocalConnectionKind<'gc>>,
     messages: Vec<QueuedMessage<'gc>>,
+    /// Messages delivered to external connections, waiting for the embedder.
+    external_messages: Vec<ExternalLocalConnectionMessage>,
 }
 
 // TODO(moulins): use gc_arena::Static to avoid unsafe impl?
@@ -135,7 +161,51 @@ impl<'gc> LocalConnections<'gc> {
         Self {
             connections: Default::default(),
             messages: Default::default(),
+            external_messages: Default::default(),
         }
+    }
+
+    /// The key of a listening connection: lowercase, prefixed with the
+    /// superdomain unless the name starts with an underscore.
+    fn connection_key(domain: &str, name: &WStr) -> WString {
+        if name.starts_with(b'_') {
+            name.to_ascii_lowercase()
+        } else {
+            let mut key = WString::from_utf8(Self::get_superdomain(domain));
+            key.push_char(':');
+            key.push_str(name);
+            key.make_ascii_lowercase();
+            key
+        }
+    }
+
+    /// Listens on a connection on behalf of the embedder: messages sent to it
+    /// by movies are queued for [`Self::take_external_messages`].
+    /// Returns `false` if the name is already in use.
+    pub fn connect_external(&mut self, domain: &str, name: &WStr) -> bool {
+        match self.connections.entry(Self::connection_key(domain, name)) {
+            std::collections::hash_map::Entry::Occupied(_) => false,
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                entry.insert(LocalConnectionKind::External);
+                true
+            }
+        }
+    }
+
+    /// Stops listening on a connection opened by [`Self::connect_external`].
+    pub fn close_external(&mut self, domain: &str, name: &WStr) {
+        let key = Self::connection_key(domain, name);
+        if matches!(
+            self.connections.get(&key),
+            Some(LocalConnectionKind::External)
+        ) {
+            self.connections.remove(&key);
+        }
+    }
+
+    /// Messages delivered to external connections since the last call.
+    pub fn take_external_messages(&mut self) -> Vec<ExternalLocalConnectionMessage> {
+        std::mem::take(&mut self.external_messages)
     }
 
     pub fn connect<C: Into<LocalConnectionKind<'gc>>>(
@@ -144,15 +214,7 @@ impl<'gc> LocalConnections<'gc> {
         connection: C,
         name: &WStr,
     ) -> Option<LocalConnectionHandle> {
-        let key = if name.starts_with(b'_') {
-            name.to_ascii_lowercase()
-        } else {
-            let mut key = WString::from_utf8(Self::get_superdomain(domain));
-            key.push_char(':');
-            key.push_str(name);
-            key.make_ascii_lowercase();
-            key
-        };
+        let key = Self::connection_key(domain, name);
 
         if self.connections.contains_key(&key) {
             None
