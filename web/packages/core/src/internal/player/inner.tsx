@@ -11,7 +11,12 @@ import {
     URLLoadOptions,
     WindowMode,
 } from "../../public/config/index.js";
-import { MovieMetadata, ReadyState } from "../../public/player/index.js";
+import {
+    ExternalInterfaceHandler,
+    LocalConnectionHandler,
+    MovieMetadata,
+    ReadyState,
+} from "../../public/player/index.js";
 import { ruffleShadowTemplate } from "../ui/shadow-template.js";
 import { localizeElements, text, textAsParagraphs } from "../i18n.js";
 import { swfFileName } from "../../swf-utils.js";
@@ -740,6 +745,12 @@ export class InnerPlayer {
             this.panic(e);
             throw e;
         });
+
+        for (const name of this.localConnectionHandlers.keys()) {
+            if (!this.instance!.local_connection_listen(name)) {
+                console.warn(`LocalConnection name already in use: ${name}`);
+            }
+        }
 
         this.rendererDebugInfo = this.instance!.renderer_debug_info();
 
@@ -1970,6 +1981,109 @@ export class InnerPlayer {
 
     public callExternalInterface(name: string, args: unknown[]) {
         return this.instance?.call_exposed_callback(name, args);
+    }
+
+    /**
+     * LocalConnection names listened from JavaScript (lowercase), with their handlers.
+     * They are kept across instances, and applied when an instance is built.
+     */
+    private readonly localConnectionHandlers = new Map<
+        string,
+        LocalConnectionHandler
+    >();
+
+    public localConnectionListen(
+        name: string,
+        handler: LocalConnectionHandler,
+    ): boolean {
+        const key = name.toLowerCase();
+        if (this.localConnectionHandlers.has(key)) {
+            return false;
+        }
+        if (this.instance && !this.instance.local_connection_listen(name)) {
+            return false;
+        }
+        this.localConnectionHandlers.set(key, handler);
+        return true;
+    }
+
+    public localConnectionClose(name: string): void {
+        this.localConnectionHandlers.delete(name.toLowerCase());
+        this.instance?.local_connection_close(name);
+    }
+
+    public localConnectionSend(
+        name: string,
+        methodName: string,
+        args: unknown[],
+    ): boolean {
+        if (!this.instance) {
+            return false;
+        }
+        this.instance.local_connection_send(name, methodName, args);
+        return true;
+    }
+
+    /**
+     * Handler consulted before evaluating each `ExternalInterface.call` of the movie.
+     */
+    public externalInterfaceHandler: ExternalInterfaceHandler | null = null;
+
+    /**
+     * Called by the instance for each `ExternalInterface.call` of the movie.
+     *
+     * @param name Name passed to `ExternalInterface.call`.
+     * @param args Arguments of the call.
+     * @returns `{ value }` if the handler handled the call, `undefined` to evaluate it as usual.
+     */
+    protected callExternalInterfaceHandler(
+        name: string,
+        args: unknown[],
+    ): { value: unknown } | undefined {
+        if (!this.externalInterfaceHandler) {
+            return undefined;
+        }
+        try {
+            return this.externalInterfaceHandler(name, args);
+        } catch (e) {
+            console.error(
+                `Error in the ExternalInterface handler for ${name}`,
+                e,
+            );
+            return { value: undefined };
+        }
+    }
+
+    /**
+     * Called by the instance, after a frame, for each message sent by a movie to a
+     * name listened from JavaScript. The name is normalized as by Flash (lowercase,
+     * prefixed with the movie's superdomain unless it starts with an underscore).
+     *
+     * @param connectionName Normalized name of the connection.
+     * @param methodName Name of the method the movie asked to call.
+     * @param args Arguments of the call.
+     */
+    protected onLocalConnectionMessage(
+        connectionName: string,
+        methodName: string,
+        args: unknown[],
+    ): void {
+        const handler =
+            this.localConnectionHandlers.get(connectionName) ??
+            this.localConnectionHandlers.get(
+                connectionName.slice(connectionName.indexOf(":") + 1),
+            );
+        if (!handler) {
+            return;
+        }
+        try {
+            handler(methodName, args);
+        } catch (e) {
+            console.error(
+                `Error in the LocalConnection handler of ${connectionName}`,
+                e,
+            );
+        }
     }
 
     protected getObjectId(): string | null {

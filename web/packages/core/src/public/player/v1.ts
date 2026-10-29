@@ -3,6 +3,29 @@ import { DataLoadOptions, URLLoadOptions } from "../config/index.js";
 
 import { ReadyState } from "./index.js";
 
+/**
+ * Receives the messages sent by movies to a `LocalConnection` name listened from JavaScript.
+ *
+ * @param methodName Name of the method the movie asked to call.
+ * @param args Arguments of the call, converted from AMF0.
+ */
+export type LocalConnectionHandler = (
+    methodName: string,
+    args: unknown[],
+) => void;
+
+/**
+ * Handles the `ExternalInterface.call` of a movie before they are evaluated as JavaScript.
+ *
+ * @param name Name passed to `ExternalInterface.call`.
+ * @param args Arguments of the call.
+ * @returns `{ value }` to answer the call with `value`, or `undefined` to let it be evaluated as usual.
+ */
+export type ExternalInterfaceHandler = (
+    name: string,
+    args: unknown[],
+) => { value: unknown } | undefined;
+
 export interface PlayerV1 {
     /**
      * Adds a handler for arbitrary "fs commands" from a movie in this player.
@@ -189,4 +212,45 @@ export interface PlayerV1 {
      * @returns Any value returned by the callback.
      */
     callExternalInterface(name: string, ...args: unknown[]): unknown;
+
+    /**
+     * Listens on a `LocalConnection` name from JavaScript, as `LocalConnection.connect` would:
+     * messages sent by movies of this player to that name are passed to the handler, after the frame.
+     *
+     * @param name Name of the connection.
+     * @param handler Function receiving the method name and the arguments of each message.
+     * @returns `false` if the name is already in use in this player.
+     */
+    localConnectionListen(
+        name: string,
+        handler: LocalConnectionHandler,
+    ): boolean;
+
+    /**
+     * Sends a message to a `LocalConnection` of a movie of this player, as `LocalConnection.send` would.
+     * It is delivered on the next frame.
+     *
+     * @param name Name of the connection.
+     * @param methodName Name of the method to call.
+     * @param args Arguments, converted to AMF0 (strings, numbers, booleans, null, arrays, plain objects).
+     * @returns `false` if no movie is loaded.
+     */
+    localConnectionSend(
+        name: string,
+        methodName: string,
+        ...args: unknown[]
+    ): boolean;
+
+    /**
+     * Stops listening on a name opened by {@link localConnectionListen}.
+     *
+     * @param name Name of the connection.
+     */
+    localConnectionClose(name: string): void;
+
+    /**
+     * Handler of the movie's `ExternalInterface.call`, consulted before the call is evaluated as
+     * JavaScript (e.g. to emulate a container with its own call conventions). `null` by default.
+     */
+    externalInterfaceHandler: ExternalInterfaceHandler | null;
 }
