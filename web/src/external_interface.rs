@@ -40,7 +40,18 @@ impl ExternalInterfaceProvider for JavascriptInterface {
             .cloned()
             .map(external_to_js_value)
             .collect::<Vec<_>>();
-        let result = if let Ok(result) = call_external_interface(name, args.into_boxed_slice()) {
+        // The embedder's handler, if any, gets the call first: it answers `{ value }`
+        // when it handles it, `undefined` to let the call be evaluated as usual.
+        let handled = self
+            .js_player
+            .call_external_interface_handler(name, args.iter().collect::<Array>())
+            .ok()
+            .filter(|answer| answer.is_object());
+        let result = if let Some(answer) = handled {
+            js_sys::Reflect::get(&answer, &JsValue::from_str("value"))
+                .map(|value| js_to_external_value(&value))
+                .unwrap_or(ExternalValue::Undefined)
+        } else if let Ok(result) = call_external_interface(name, args.into_boxed_slice()) {
             js_to_external_value(&result)
         } else {
             ExternalValue::Undefined

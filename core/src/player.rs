@@ -48,13 +48,15 @@ use crate::input::InputManager;
 use crate::library::Library;
 use crate::limits::ExecutionLimit;
 use crate::loader::{LoadBehavior, LoadManager};
-use crate::local_connection::LocalConnections;
+use crate::local_connection::{
+    ExternalLocalConnectionMessage, LocalConnectionKind, LocalConnections,
+};
 use crate::net_connection::NetConnections;
 use crate::orphan_manager::OrphanManager;
 use crate::prelude::*;
 use crate::socket::Sockets;
 use crate::streams::StreamManager;
-use crate::string::{AvmString, AvmStringInterner, StringContext};
+use crate::string::{AvmString, AvmStringInterner, StringContext, WString};
 use crate::stub::StubCollection;
 use crate::system_properties::SystemProperties;
 use crate::tag_utils::{SwfMovie, SwfMovieData};
@@ -62,6 +64,7 @@ use crate::timer::Timers;
 use crate::vminterface::Instantiator;
 use async_channel::Sender;
 use enumset::EnumSet;
+use flash_lso::types::Value as AmfValue;
 use fnv::FnvHashSet;
 use gc_arena::lock::GcRefLock;
 use gc_arena::{Collect, DynamicRootSet, Mutation, Rootable};
@@ -2614,6 +2617,60 @@ impl Player {
                 tracing::warn!("Calling unknown internal interface: {}", name);
                 ExternalValue::Null
             }
+        })
+    }
+
+    /// Listens on a `LocalConnection` name on behalf of the embedder: messages
+    /// that movies send to it are returned by
+    /// [`Self::take_external_local_connection_messages`].
+    /// Returns `false` if the name is already in use.
+    pub fn connect_external_local_connection(&mut self, name: &str) -> bool {
+        self.mutate_with_update_context(|context| {
+            let domain = LocalConnections::get_domain(context.root_swf.url());
+            context
+                .local_connections
+                .connect_external(&domain, &WString::from_utf8(name))
+        })
+    }
+
+    /// Stops listening on a name opened by [`Self::connect_external_local_connection`].
+    pub fn close_external_local_connection(&mut self, name: &str) {
+        self.mutate_with_update_context(|context| {
+            let domain = LocalConnections::get_domain(context.root_swf.url());
+            context
+                .local_connections
+                .close_external(&domain, &WString::from_utf8(name));
+        })
+    }
+
+    /// Sends a `LocalConnection` message from the embedder, as `LocalConnection.send`
+    /// would; it is delivered on the next frame.
+    pub fn send_external_local_connection(
+        &mut self,
+        connection_name: &str,
+        method_name: &str,
+        arguments: Vec<AmfValue>,
+    ) {
+        self.mutate_with_update_context(|context| {
+            let domain = LocalConnections::get_domain(context.root_swf.url());
+            let connection_name = AvmString::new_utf8(context.gc(), connection_name);
+            let method_name = AvmString::new_utf8(context.gc(), method_name);
+            context.local_connections.send(
+                &domain,
+                LocalConnectionKind::External,
+                connection_name,
+                method_name,
+                arguments,
+            );
+        })
+    }
+
+    /// Messages delivered to the embedder's `LocalConnection` names since the last call.
+    pub fn take_external_local_connection_messages(
+        &mut self,
+    ) -> Vec<ExternalLocalConnectionMessage> {
+        self.mutate_with_update_context(|context| {
+            context.local_connections.take_external_messages()
         })
     }
 
