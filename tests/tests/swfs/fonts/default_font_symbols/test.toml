@@ -1,0 +1,8 @@
+num_ticks = 1
+
+# Checks that the built-in default font has glyphs for symbols commonly used
+# as icons in button labels. The expected output was not recorded with
+# Flash Player: it assumes Arial, which has all these glyphs (WGL4).
+
+[player_options]
+with_default_font = true

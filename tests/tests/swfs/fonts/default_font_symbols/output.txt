@@ -1,0 +1,8 @@
+U+25B2: TextField has width: true, advances: true, TextLine has width: true
+U+25BA: TextField has width: true, advances: true, TextLine has width: true
+U+25BC: TextField has width: true, advances: true, TextLine has width: true
+U+25C4: TextField has width: true, advances: true, TextLine has width: true
+U+25CF: TextField has width: true, advances: true, TextLine has width: true
+U+25A0: TextField has width: true, advances: true, TextLine has width: true
+U+2192: TextField has width: true, advances: true, TextLine has width: true
+U+2190: TextField has width: true, advances: true, TextLine has width: true
