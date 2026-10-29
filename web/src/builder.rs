@@ -641,6 +641,7 @@ impl RuffleInstanceBuilder {
     pub fn create_navigator(
         &self,
         log_subscriber: Arc<Layered<WASMLayer, Registry>>,
+        js_player: Option<JavascriptPlayer>,
     ) -> WebNavigatorBackend {
         WebNavigatorBackend::new(
             self.allow_script_access,
@@ -652,6 +653,7 @@ impl RuffleInstanceBuilder {
             self.open_url_mode,
             self.socket_proxy.clone(),
             self.credential_allow_list.clone(),
+            js_player,
         )
     }
 
@@ -677,7 +679,7 @@ impl RuffleInstanceBuilder {
         let mut builder = PlayerBuilder::new()
             .with_boxed_renderer(renderer)
             .with_boxed_audio(self.create_audio_backend(log_subscriber.clone()))
-            .with_navigator(self.create_navigator(log_subscriber.clone()))
+            .with_navigator(self.create_navigator(log_subscriber.clone(), Some(js_player.clone())))
             .with_storage(self.create_storage_backend());
 
         // Create the external interface.

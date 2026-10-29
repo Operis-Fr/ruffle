@@ -163,6 +163,15 @@ unsafe extern "C" {
         args: Array,
     ) -> Result<JsValue, JsValue>;
 
+    #[wasm_bindgen(method, catch, js_name = "callNavigateToUrlHandler")]
+    fn call_navigate_to_url_handler(
+        this: &JavascriptPlayer,
+        url: &str,
+        target: &str,
+        method: Option<String>,
+        variables: JsValue,
+    ) -> Result<JsValue, JsValue>;
+
     #[wasm_bindgen(method, js_name = "onLocalConnectionMessage")]
     fn on_local_connection_message(
         this: &JavascriptPlayer,
