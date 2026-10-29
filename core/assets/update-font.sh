@@ -17,8 +17,13 @@ echo "4. Removing MATH layout from NotoSansMath-Regular.ttf"
 pyftsubset NotoSansMath-Regular.ttf "*" --drop-tables+=MATH --output-file=NotoSansMath-Regular-NoTable.ttf
 
 echo "5. Subsetting NotoSansMath-Regular-NoTable.ttf"
+# 2190-21FF Arrows
 # 2200-22FF Mathematical Operators
-pyftsubset --unicodes=2200-22FF NotoSansMath-Regular-NoTable.ttf
+# 25A0-25FF Geometric Shapes
+# 2713      Check Mark
+# Noto Sans has no arrows or geometric shapes, which are often used
+# as icons in button labels (e.g. ▲ ► ▼ ◄ ✓).
+pyftsubset --unicodes=2190-21FF,2200-22FF,25A0-25FF,2713 NotoSansMath-Regular-NoTable.ttf
 
 echo "6. Merging fonts"
 pyftmerge NotoSans-Regular.subset.ttf NotoSansMath-Regular-NoTable.subset.ttf

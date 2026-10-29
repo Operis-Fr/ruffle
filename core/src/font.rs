@@ -561,3 +561,38 @@ impl<'gc> FontLike<'gc> for Font<'gc> {
         self.0.font_type
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use flate2::read::DeflateDecoder;
+    use gc_arena::arena::rootless_mutate;
+    use std::io::Read;
+
+    const DEVICE_FONT: &[u8] = include_bytes!("../assets/notosans.subset.ttf.gz");
+
+    #[test]
+    fn default_font_has_symbol_glyphs() {
+        rootless_mutate(|mc| {
+            let mut data = Vec::new();
+            DeflateDecoder::new(DEVICE_FONT)
+                .read_to_end(&mut data)
+                .expect("default font decompression must succeed");
+
+            let descriptor = FontDescriptor::from_parts("Noto Sans", false, false);
+            let font =
+                Font::from_font_file(mc, descriptor, FontFileData::new(data), 0, FontType::Device)
+                    .unwrap();
+
+            // Arrows, geometric shapes and check marks are commonly used
+            // as icons in button labels.
+            for c in ['a', '∑', '←', '→', '⇒', '■', '●', '▲', '►', '▼', '◄', '✓']
+            {
+                assert!(
+                    font.get_glyph_for_char(c).is_some(),
+                    "default font has no glyph for {c:?}"
+                );
+            }
+        })
+    }
+}
