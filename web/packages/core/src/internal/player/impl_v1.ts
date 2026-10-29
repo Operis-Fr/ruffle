@@ -8,6 +8,7 @@ import type {
     ExternalInterfaceHandler,
     LocalConnectionHandler,
     MovieMetadata,
+    NavigateToUrlHandler,
 } from "../../public/player/index.js";
 
 export class PlayerV1Impl implements PlayerV1 {
@@ -129,6 +130,14 @@ export class PlayerV1Impl implements PlayerV1 {
 
     localConnectionClose(name: string): void {
         this.#inner.localConnectionClose(name);
+    }
+
+    get navigateToUrlHandler(): NavigateToUrlHandler | null {
+        return this.#inner.navigateToUrlHandler;
+    }
+
+    set navigateToUrlHandler(handler: NavigateToUrlHandler | null) {
+        this.#inner.navigateToUrlHandler = handler;
     }
 
     get externalInterfaceHandler(): ExternalInterfaceHandler | null {
