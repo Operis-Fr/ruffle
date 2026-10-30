@@ -636,6 +636,16 @@ impl RuffleHandle {
             .append_child(&player.canvas.clone().into())
             .into_js_result()?;
 
+        // The player element may already be in another document than the one Ruffle runs in: the
+        // embedder may move it, e.g. into a popup window, before the movie is loaded (or while it
+        // is), so that this instance is created there. Animation frames and keyboard events then
+        // come from that document's window, as after `rebind_window`.
+        let player_window = player
+            .canvas
+            .owner_document()
+            .and_then(|document| document.default_view())
+            .unwrap_or_else(|| window.clone());
+
         let mut callstack = None;
         if let Ok(core) = player.core.try_lock() {
             callstack = Some(core.callstack());
@@ -649,8 +659,8 @@ impl RuffleHandle {
             canvas: player.canvas.clone(),
             canvas_width: 0, // Initialize canvas width and height to 0 to force an initial canvas resize.
             canvas_height: 0,
-            device_pixel_ratio: window.device_pixel_ratio(),
-            window: window.clone(),
+            device_pixel_ratio: player_window.device_pixel_ratio(),
+            window: player_window.clone(),
             animation_handler: None,
             animation_handler_id: None,
             animation_generation: 0,
@@ -865,7 +875,7 @@ impl RuffleHandle {
                 },
             ));
 
-            Self::register_keyboard_callbacks(ruffle, instance, &window);
+            Self::register_keyboard_callbacks(ruffle, instance, &player_window);
 
             // Create webglcontextlost handler.
             let js_player_callback = js_player.clone();
