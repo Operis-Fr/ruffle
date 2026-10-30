@@ -17,3 +17,9 @@ Tests AS3 jetables de la coupure des lignes FTE (`fte-coupure-lignes`, `fte-larg
 **Le fichier `output.txt` n'est PAS une référence Flash Player** : c'est la sortie de Ruffle au moment de l'essai. Ces dossiers ne doivent donc pas être déplacés tels quels dans `tests/tests/swfs/` : un vrai test de régression demande une sortie produite par le Flash Player (voir `CONTRIBUTING.md` d'upstream).
 
 Pour en lancer un ponctuellement : le copier temporairement dans `tests/tests/swfs/avm2/<nom>/`, puis `cargo test -p tests --test tests -- avm2/<nom>`.
+
+## `PASSATION-DDC-OOM.md`
+
+Enquête et correctif du plantage de Droits de Cités après la connexion en mode conteneur (OOM dans
+`AvmString::concat`, PR #6), avec en annexe le diagnostic temporaire qui donne la pile AS d'une concaténation
+démesurée.
