@@ -126,6 +126,11 @@ struct RuffleInstance {
     timestamp: Option<f64>,
     animation_handler: Option<AnimationHandler>, // requestAnimationFrame callback
     animation_handler_id: Option<NonZeroI32>,    // requestAnimationFrame id
+    /// Incremented when the player moves to another window: animation frame callbacks
+    /// of a previous window (see `new_animation_handler`) then neither tick nor reschedule.
+    animation_generation: u32,
+    /// Handlers of previous windows, kept alive for their pending callbacks.
+    retired_animation_handlers: Vec<AnimationHandler>,
     background_tick_mode: bool,
     mouse_move_callback: Option<JsCallback<PointerEvent>>,
     mouse_enter_callback: Option<JsCallback<PointerEvent>>,
@@ -374,6 +379,57 @@ impl RuffleHandle {
         });
     }
 
+    /// Rebinds the player to the window of the document its canvas now belongs to, after the
+    /// embedder moved the player element to another document (e.g. a popup window opened to
+    /// detach the movie): animation frames and keyboard events then come from that window, so
+    /// that the movie keeps running and receiving keys even if the original window is hidden.
+    pub fn rebind_window(&self) {
+        let ruffle = *self;
+        let _ = self.with_instance_mut(|instance| {
+            let Some(window) = instance
+                .canvas
+                .owner_document()
+                .and_then(|document| document.default_view())
+            else {
+                return;
+            };
+            let current: &JsValue = instance.window.as_ref();
+            let adopted: &JsValue = window.as_ref();
+            if current == adopted {
+                return;
+            }
+            if let Some(id) = instance.animation_handler_id.take() {
+                let _ = instance.window.cancel_animation_frame(id.into());
+            }
+            instance.window = window.clone();
+            instance.device_pixel_ratio = window.device_pixel_ratio();
+            // Animation frame timestamps are relative to each window's time origin: start over,
+            // or the first tick in the new window would get a negative elapsed time.
+            instance.timestamp = None;
+            Self::register_keyboard_callbacks(ruffle, instance, &window);
+            // A new loop for the new window: frames already requested from the previous one
+            // (possibly several, after a tick that was running during the move) are dropped
+            instance.animation_generation = instance.animation_generation.wrapping_add(1);
+            if let Some(previous) = instance
+                .animation_handler
+                .replace(Self::new_animation_handler(
+                    ruffle,
+                    instance.animation_generation,
+                ))
+            {
+                instance.retired_animation_handlers.push(previous);
+            }
+            if !instance.background_tick_mode
+                && let Some(handler) = &instance.animation_handler
+            {
+                let id = window
+                    .request_animation_frame(handler.as_ref().unchecked_ref())
+                    .unwrap_or_default();
+                instance.animation_handler_id = NonZeroI32::new(id);
+            }
+        });
+    }
+
     /// Ticks the game core once. Intended to be called from a Web Worker loop
     /// after calling `enable_background_tick_mode`.
     pub fn tick_for_background(&self, timestamp: f64) {
@@ -597,6 +653,8 @@ impl RuffleHandle {
             window: window.clone(),
             animation_handler: None,
             animation_handler_id: None,
+            animation_generation: 0,
+            retired_animation_handlers: Vec::new(),
             background_tick_mode: false,
             mouse_move_callback: None,
             mouse_enter_callback: None,
@@ -638,9 +696,7 @@ impl RuffleHandle {
 
         // Create the animation frame closure.
         ruffle.with_instance_mut(|instance| {
-            instance.animation_handler = Some(Closure::new(move |timestamp| {
-                ruffle.tick(timestamp);
-            }));
+            instance.animation_handler = Some(Self::new_animation_handler(ruffle, 0));
 
             // Create mouse move handler.
             instance.mouse_move_callback = Some(JsCallback::register(
@@ -809,92 +865,7 @@ impl RuffleHandle {
                 },
             ));
 
-            // Create keydown event handler.
-            instance.key_down_callback = Some(JsCallback::register(
-                &window,
-                "keydown",
-                false,
-                move |js_event: KeyboardEvent| {
-                    let _ = ruffle.with_instance(|instance| {
-                        if instance.has_focus {
-                            let mut paste_event = false;
-                            let _ = instance.with_core_mut(|core| {
-                                let key = web_input_to_ruffle_key_descriptor(&js_event);
-                                let is_ctrl_cmd = js_event.ctrl_key() || js_event.meta_key();
-                                core.handle_event(PlayerEvent::KeyDown { key });
-
-                                if let Some(control_code) = web_to_ruffle_text_control(
-                                    &js_event.key(),
-                                    &js_event.code(),
-                                    is_ctrl_cmd,
-                                    js_event.shift_key(),
-                                ) {
-                                    paste_event = control_code == TextControlCode::Paste;
-                                    // The JS paste event fires separately and the clipboard text is not available until then,
-                                    // so we need to wait before handling it
-                                    if !paste_event {
-                                        core.handle_event(PlayerEvent::TextControl {
-                                            code: control_code,
-                                        });
-                                    }
-                                } else if let Some(codepoint) = key.logical_key.character() {
-                                    core.handle_event(PlayerEvent::TextInput { codepoint });
-                                }
-                            });
-
-                            // Don't prevent the JS paste event from firing
-                            if !paste_event {
-                                js_event.prevent_default();
-                            }
-                        }
-                    });
-                },
-            ));
-
-            instance.paste_callback = Some(JsCallback::register(
-                &window,
-                "paste",
-                false,
-                move |js_event: ClipboardEvent| {
-                    let _ = ruffle.with_instance(|instance| {
-                        if instance.has_focus {
-                            let _ = instance.with_core_mut(|core| {
-                                let clipboard_content =
-                                    if let Some(content) = js_event.clipboard_data() {
-                                        content.get_data("text/plain").unwrap_or_default()
-                                    } else {
-                                        "".into()
-                                    };
-                                <dyn Any>::downcast_mut::<WebUiBackend>(core.ui_mut())
-                                    .expect("Web UI backend")
-                                    .set_clipboard_content_buffer(clipboard_content);
-                                core.handle_event(PlayerEvent::TextControl {
-                                    code: TextControlCode::Paste,
-                                });
-                            });
-                            js_event.prevent_default();
-                        }
-                    });
-                },
-            ));
-
-            // Create keyup event handler.
-            instance.key_up_callback = Some(JsCallback::register(
-                &window,
-                "keyup",
-                false,
-                move |js_event: KeyboardEvent| {
-                    let _ = ruffle.with_instance(|instance| {
-                        if instance.has_focus {
-                            let _ = instance.with_core_mut(|core| {
-                                let key = web_input_to_ruffle_key_descriptor(&js_event);
-                                core.handle_event(PlayerEvent::KeyUp { key });
-                            });
-                            js_event.prevent_default();
-                        }
-                    });
-                },
-            ));
+            Self::register_keyboard_callbacks(ruffle, instance, &window);
 
             // Create webglcontextlost handler.
             let js_player_callback = js_player.clone();
@@ -950,6 +921,111 @@ impl RuffleHandle {
             .dyn_ref::<ShadowRoot>()
             .map(|root| root.host())
             .and_then(|el| el.dyn_into::<HtmlElement>().ok())
+    }
+
+    /// The animation frame callback of the given generation: it ticks (and reschedules itself)
+    /// only while the player stays in the window it was created for (see `rebind_window`).
+    fn new_animation_handler(ruffle: RuffleHandle, generation: u32) -> AnimationHandler {
+        Closure::new(move |timestamp| {
+            let current = ruffle
+                .with_instance(|instance| instance.animation_generation == generation)
+                .unwrap_or_default();
+            if current {
+                ruffle.tick(timestamp);
+            }
+        })
+    }
+
+    /// Listens to the keyboard (and to pastes) on the given window: the window of the document
+    /// that holds the player, which changes when the embedder moves the player element to another
+    /// document (see `rebind_window`). Replaces the previous listeners.
+    fn register_keyboard_callbacks(
+        ruffle: RuffleHandle,
+        instance: &mut RuffleInstance,
+        window: &Window,
+    ) {
+        // Create keydown event handler.
+        instance.key_down_callback = Some(JsCallback::register(
+            &window,
+            "keydown",
+            false,
+            move |js_event: KeyboardEvent| {
+                let _ = ruffle.with_instance(|instance| {
+                    if instance.has_focus {
+                        let mut paste_event = false;
+                        let _ = instance.with_core_mut(|core| {
+                            let key = web_input_to_ruffle_key_descriptor(&js_event);
+                            let is_ctrl_cmd = js_event.ctrl_key() || js_event.meta_key();
+                            core.handle_event(PlayerEvent::KeyDown { key });
+                            if let Some(control_code) = web_to_ruffle_text_control(
+                                &js_event.key(),
+                                &js_event.code(),
+                                is_ctrl_cmd,
+                                js_event.shift_key(),
+                            ) {
+                                paste_event = control_code == TextControlCode::Paste;
+                                // The JS paste event fires separately and the clipboard text is not available until then,
+                                // so we need to wait before handling it
+                                if !paste_event {
+                                    core.handle_event(PlayerEvent::TextControl {
+                                        code: control_code,
+                                    });
+                                }
+                            } else if let Some(codepoint) = key.logical_key.character() {
+                                core.handle_event(PlayerEvent::TextInput { codepoint });
+                            }
+                        });
+                        // Don't prevent the JS paste event from firing
+                        if !paste_event {
+                            js_event.prevent_default();
+                        }
+                    }
+                });
+            },
+        ));
+        instance.paste_callback = Some(JsCallback::register(
+            &window,
+            "paste",
+            false,
+            move |js_event: ClipboardEvent| {
+                let _ = ruffle.with_instance(|instance| {
+                    if instance.has_focus {
+                        let _ = instance.with_core_mut(|core| {
+                            let clipboard_content = if let Some(content) = js_event.clipboard_data()
+                            {
+                                content.get_data("text/plain").unwrap_or_default()
+                            } else {
+                                "".into()
+                            };
+                            <dyn Any>::downcast_mut::<WebUiBackend>(core.ui_mut())
+                                .expect("Web UI backend")
+                                .set_clipboard_content_buffer(clipboard_content);
+                            core.handle_event(PlayerEvent::TextControl {
+                                code: TextControlCode::Paste,
+                            });
+                        });
+                        js_event.prevent_default();
+                    }
+                });
+            },
+        ));
+        // Create keyup event handler.
+        instance.key_up_callback = Some(JsCallback::register(
+            &window,
+            "keyup",
+            false,
+            move |js_event: KeyboardEvent| {
+                let _ = ruffle.with_instance(|instance| {
+                    if instance.has_focus {
+                        let _ = instance.with_core_mut(|core| {
+                            let key = web_input_to_ruffle_key_descriptor(&js_event);
+                            core.handle_event(PlayerEvent::KeyUp { key });
+                        });
+                        js_event.prevent_default();
+                    }
+                });
+            },
+        ));
     }
 
     fn set_up_focus_management(
