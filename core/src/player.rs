@@ -1087,12 +1087,14 @@ impl Player {
     }
 
     fn handle_focus_event(&mut self, event: PlayerEvent) -> bool {
-        if let PlayerEvent::FocusLost = event {
-            self.mutate_with_update_context(|context| {
-                let focus_tracker = context.focus_tracker;
-                focus_tracker.reset_focus(context);
-            });
-        }
+        self.mutate_with_update_context(|context| {
+            let focus_tracker = context.focus_tracker;
+            match event {
+                PlayerEvent::FocusLost => focus_tracker.suspend_focus(context),
+                PlayerEvent::FocusGained => focus_tracker.resume_focus(context),
+                _ => {}
+            }
+        });
 
         true
     }

@@ -21,6 +21,9 @@ use swf::{Color, Rectangle, Twips};
 #[collect(no_drop)]
 pub struct FocusTrackerData<'gc> {
     focus: Lock<Option<InteractiveObject<'gc>>>,
+    /// The object that was focused when the player lost focus, restored when
+    /// the player gains focus again (e.g. the user comes back to the page or tab).
+    suspended_focus: Lock<Option<InteractiveObject<'gc>>>,
     highlight: Cell<Highlight>,
 }
 
@@ -63,6 +66,7 @@ impl<'gc> FocusTracker<'gc> {
             mc,
             FocusTrackerData {
                 focus: Lock::new(None),
+                suspended_focus: Lock::new(None),
                 highlight: Cell::new(Highlight::Inactive),
             },
         ))
@@ -95,6 +99,50 @@ impl<'gc> FocusTracker<'gc> {
     /// Reset the focus programmatically.
     pub fn reset_focus(&self, context: &mut UpdateContext<'gc>) {
         self.set_internal(None, context, true);
+    }
+
+    /// The player lost focus: remember the focused object and reset the focus,
+    /// so that it can be given back by [`Self::resume_focus`].
+    pub fn suspend_focus(&self, context: &mut UpdateContext<'gc>) {
+        let focus = self.0.focus.get();
+        self.reset_focus(context);
+        let suspended = unlock!(
+            Gc::write(context.gc(), self.0),
+            FocusTrackerData,
+            suspended_focus
+        );
+        suspended.set(focus);
+    }
+
+    /// The player gained focus: give the focus back to the object that had it
+    /// when the player lost focus, if nothing else has been focused since and
+    /// the object is still on the stage. Flex's FocusManager relies on the
+    /// focused text field being restored when the application is activated.
+    pub fn resume_focus(&self, context: &mut UpdateContext<'gc>) {
+        let suspended = unlock!(
+            Gc::write(context.gc(), self.0),
+            FocusTrackerData,
+            suspended_focus
+        );
+        let Some(object) = suspended.take() else {
+            return;
+        };
+        if self.0.focus.get().is_some() {
+            return;
+        }
+        let display_object = object.as_displayobject();
+        if display_object.avm1_removed() || !Self::is_on_stage(display_object, context) {
+            return;
+        }
+        self.set(Some(object), context);
+    }
+
+    fn is_on_stage(object: DisplayObject<'gc>, context: &mut UpdateContext<'gc>) -> bool {
+        let mut current = object;
+        while let Some(parent) = current.parent() {
+            current = parent;
+        }
+        DisplayObject::ptr_eq(current, context.stage.into())
     }
 
     /// Set the focus and acknowledge that this change was caused by a pointer device.
