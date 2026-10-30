@@ -26,6 +26,22 @@ export type ExternalInterfaceHandler = (
     args: unknown[],
 ) => { value: unknown } | undefined;
 
+/**
+ * Handles a navigation requested by a movie (navigateToURL, getURL) before Ruffle performs it.
+ *
+ * @param url Absolute URL to open (after URL rewrite rules).
+ * @param target Target window name ("" for the current one, "_blank", "_self", a named window...).
+ * @param method "GET" or "POST" when variables are sent, null otherwise.
+ * @param variables Variables sent with the request, or null.
+ * @returns true when the handler took over the navigation; Ruffle then does nothing.
+ */
+export type NavigateToUrlHandler = (
+    url: string,
+    target: string,
+    method: string | null,
+    variables: Record<string, string> | null,
+) => boolean;
+
 export interface PlayerV1 {
     /**
      * Adds a handler for arbitrary "fs commands" from a movie in this player.
@@ -253,4 +269,10 @@ export interface PlayerV1 {
      * JavaScript (e.g. to emulate a container with its own call conventions). `null` by default.
      */
     externalInterfaceHandler: ExternalInterfaceHandler | null;
+
+    /**
+     * Handler of the movie's navigations (navigateToURL, getURL), consulted before Ruffle opens the URL
+     * (e.g. to open it in a tab of the embedding page). `null` by default.
+     */
+    navigateToUrlHandler: NavigateToUrlHandler | null;
 }
