@@ -305,6 +305,11 @@ pub fn web_to_ruffle_text_control(
     } else {
         match key {
             "Enter" => Some(TextControlCode::Enter),
+            // Windows-style clipboard shortcuts, honored by Flash Player alongside Ctrl+C/V/X.
+            // Shift+Insert relies on the browser firing a `paste` event, like Ctrl+V.
+            "Insert" if ctrl_key => Some(TextControlCode::Copy),
+            "Insert" if shift_key => Some(TextControlCode::Paste),
+            "Delete" if shift_key => Some(TextControlCode::Cut),
             "Delete" if ctrl_key => Some(TextControlCode::DeleteWord),
             "Delete" => Some(TextControlCode::Delete),
             "Backspace" if ctrl_key => Some(TextControlCode::BackspaceWord),
