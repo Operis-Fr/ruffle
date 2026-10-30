@@ -24,6 +24,8 @@ pub struct FocusTrackerData<'gc> {
     /// The object that was focused when the player lost focus, restored when
     /// the player gains focus again (e.g. the user comes back to the page or tab).
     suspended_focus: Lock<Option<InteractiveObject<'gc>>>,
+    /// The selection of the suspended text field, restored with its focus.
+    suspended_selection: Cell<Option<TextSelection>>,
     highlight: Cell<Highlight>,
 }
 
@@ -67,6 +69,7 @@ impl<'gc> FocusTracker<'gc> {
             FocusTrackerData {
                 focus: Lock::new(None),
                 suspended_focus: Lock::new(None),
+                suspended_selection: Cell::new(None),
                 highlight: Cell::new(Highlight::Inactive),
             },
         ))
@@ -105,6 +108,8 @@ impl<'gc> FocusTracker<'gc> {
     /// so that it can be given back by [`Self::resume_focus`].
     pub fn suspend_focus(&self, context: &mut UpdateContext<'gc>) {
         let focus = self.0.focus.get();
+        let selection = self.get_as_edit_text().and_then(|text| text.selection());
+        self.0.suspended_selection.set(selection);
         self.reset_focus(context);
         let suspended = unlock!(
             Gc::write(context.gc(), self.0),
@@ -135,6 +140,12 @@ impl<'gc> FocusTracker<'gc> {
             return;
         }
         self.set(Some(object), context);
+        // Editing resumes where it stopped, instead of the selection made on focus.
+        if let Some(selection) = self.0.suspended_selection.take()
+            && let Some(text) = display_object.as_edit_text()
+        {
+            text.set_selection(Some(selection));
+        }
     }
 
     fn is_on_stage(object: DisplayObject<'gc>, context: &mut UpdateContext<'gc>) -> bool {
