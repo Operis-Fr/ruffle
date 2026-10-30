@@ -1,5 +1,5 @@
 //! Navigator backend for web
-use crate::SocketProxy;
+use crate::{JavascriptPlayer, SocketProxy};
 use async_channel::{Receiver, Sender};
 use futures_util::future::Either;
 use futures_util::{SinkExt, StreamExt, future};
@@ -59,6 +59,8 @@ pub struct WebNavigatorBackend {
     socket_proxies: Vec<SocketProxy>,
     credential_allow_list: Vec<String>,
     player: Weak<Mutex<Player>>,
+    /// The player's JavaScript side, consulted before opening a URL.
+    js_player: Option<JavascriptPlayer>,
 }
 
 #[expect(clippy::too_many_arguments)]
@@ -73,6 +75,7 @@ impl WebNavigatorBackend {
         open_url_mode: OpenUrlMode,
         socket_proxies: Vec<SocketProxy>,
         credential_allow_list: Vec<String>,
+        js_player: Option<JavascriptPlayer>,
     ) -> Self {
         let window = web_sys::window().expect("window()");
 
@@ -118,6 +121,7 @@ impl WebNavigatorBackend {
             socket_proxies,
             credential_allow_list,
             player: Weak::new(),
+            js_player,
         }
     }
 
@@ -227,6 +231,33 @@ impl NavigatorBackend for WebNavigatorBackend {
         }
 
         let window = window().expect("window()");
+
+        // The embedder's handler, if any, may take over the navigation (e.g. to open
+        // the URL in a tab of its own instead of a browser window).
+        if let Some(js_player) = &self.js_player {
+            let (method, variables) = match &vars_method {
+                Some((method, variables)) => {
+                    let object = js_sys::Object::new();
+                    for (key, value) in variables {
+                        let _ = js_sys::Reflect::set(
+                            &object,
+                            &JsValue::from_str(key),
+                            &JsValue::from_str(value),
+                        );
+                    }
+                    (Some(method.to_string()), JsValue::from(object))
+                }
+                None => (None, JsValue::NULL),
+            };
+            if js_player
+                .call_navigate_to_url_handler(url.as_str(), target, method, variables)
+                .ok()
+                .and_then(|handled| handled.as_bool())
+                .unwrap_or(false)
+            {
+                return;
+            }
+        }
 
         if url.scheme() != "javascript" {
             if self.open_url_mode == OpenUrlMode::Confirm {

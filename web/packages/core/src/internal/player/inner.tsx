@@ -15,6 +15,7 @@ import {
     ExternalInterfaceHandler,
     LocalConnectionHandler,
     MovieMetadata,
+    NavigateToUrlHandler,
     ReadyState,
 } from "../../public/player/index.js";
 import { ruffleShadowTemplate } from "../ui/shadow-template.js";
@@ -2022,6 +2023,44 @@ export class InnerPlayer {
         }
         this.instance.local_connection_send(name, methodName, args);
         return true;
+    }
+
+    /**
+     * Handler consulted before Ruffle opens a URL for the movie (navigateToURL, getURL).
+     */
+    public navigateToUrlHandler: NavigateToUrlHandler | null = null;
+
+    /**
+     * Called by the instance before opening a URL for the movie.
+     *
+     * @param url Absolute URL to open.
+     * @param target Target window name.
+     * @param method "GET" or "POST" when variables are sent, undefined otherwise.
+     * @param variables Variables sent with the request, or null.
+     * @returns true when the handler took over the navigation.
+     */
+    protected callNavigateToUrlHandler(
+        url: string,
+        target: string,
+        method: string | undefined,
+        variables: Record<string, string> | null,
+    ): boolean {
+        if (!this.navigateToUrlHandler) {
+            return false;
+        }
+        try {
+            return (
+                this.navigateToUrlHandler(
+                    url,
+                    target,
+                    method ?? null,
+                    variables,
+                ) === true
+            );
+        } catch (e) {
+            console.error(`Error in the navigateToURL handler for ${url}`, e);
+            return false;
+        }
     }
 
     /**
