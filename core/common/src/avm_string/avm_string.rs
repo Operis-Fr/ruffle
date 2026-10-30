@@ -179,3 +179,50 @@ impl<'gc> PartialEq<AvmAtom<'gc>> for AvmString<'gc> {
 impl Eq for AvmString<'_> {}
 
 wstr_impl_traits!(impl['gc] manual_eq for AvmString<'gc>);
+
+#[cfg(test)]
+mod tests {
+    use super::AvmString;
+    use gc_arena::arena::rootless_mutate;
+    use ruffle_wstr::{WStr, WString};
+
+    #[test]
+    fn concat_byte_string_to_wide_string_in_place() {
+        rootless_mutate(|mc| {
+            let mut buffer = WString::with_capacity(64, true);
+            buffer.push_str(WStr::from_units(
+                "w€ab".encode_utf16().collect::<Vec<u16>>().as_slice(),
+            ));
+            let mut accum = AvmString::new(mc, buffer);
+            assert!(accum.is_wide());
+
+            let start = accum.as_wstr() as *const _ as *const ();
+            for _ in 0..8 {
+                accum = AvmString::concat(mc, accum, AvmString::new_utf8(mc, "cdé"));
+                assert!(accum.is_wide());
+                assert!(accum.is_dependent());
+                assert_eq!(accum.as_wstr() as *const _ as *const (), start);
+            }
+
+            let expected = format!("w€ab{}", "cdé".repeat(8));
+            assert_eq!(accum.to_utf8_lossy(), expected);
+        });
+    }
+
+    #[test]
+    fn concat_wide_string_to_byte_string() {
+        rootless_mutate(|mc| {
+            let bytes = AvmString::concat(
+                mc,
+                AvmString::new_utf8(mc, "ab"),
+                AvmString::new_utf8(mc, "cd"),
+            );
+            assert!(!bytes.is_wide());
+            let mixed = AvmString::concat(mc, bytes, AvmString::new_utf8(mc, "€"));
+            assert!(mixed.is_wide());
+            assert_eq!(mixed.to_utf8_lossy(), "abcd€");
+            // The byte string is unchanged.
+            assert_eq!(bytes.to_utf8_lossy(), "abcd");
+        });
+    }
+}
