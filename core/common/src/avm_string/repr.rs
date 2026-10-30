@@ -1,5 +1,5 @@
 use gc_arena::{Collect, Gc};
-use ruffle_wstr::{WStr, WString, panic_on_invalid_length, ptr as wptr, wstr_impl_traits};
+use ruffle_wstr::{Units, WStr, WString, panic_on_invalid_length, ptr as wptr, wstr_impl_traits};
 use std::cell::Cell;
 use std::ops::Deref;
 
@@ -75,9 +75,9 @@ impl<'gc> AvmStringRepr<'gc> {
     }
 
     pub fn try_append_inline(left: Gc<'gc, Self>, right: &WStr) -> Option<Self> {
-        // note: we could also in-place append a byte string to a wide string
-        // But it was skipped for now.
-        if left.is_wide() != right.is_wide() {
+        // A byte string can be appended in place to a wide string (its units are widened),
+        // but a wide string can't be appended in place to a byte string.
+        if !left.is_wide() && right.is_wide() {
             return None;
         }
 
@@ -121,8 +121,19 @@ impl<'gc> AvmStringRepr<'gc> {
             }
             if chars_available >= right.len() {
                 let first_available = first_available as *mut u8;
-                let right_ptr = right as *const WStr as *const () as *const u8;
-                std::ptr::copy_nonoverlapping(right_ptr, first_available, char_size * right.len());
+                if left.is_wide() == right.is_wide() {
+                    let right_ptr = right as *const WStr as *const () as *const u8;
+                    std::ptr::copy_nonoverlapping(
+                        right_ptr,
+                        first_available,
+                        char_size * right.len(),
+                    );
+                } else if let Units::Bytes(bytes) = right.units() {
+                    let first_available = first_available as *mut u16;
+                    for (i, &byte) in bytes.iter().enumerate() {
+                        first_available.add(i).write_unaligned(byte.into());
+                    }
+                }
 
                 let new_chars_used: usize = left_origin.chars_used.get() as usize + right.len();
                 if new_chars_used >= u32::MAX as usize {
