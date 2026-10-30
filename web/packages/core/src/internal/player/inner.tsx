@@ -473,36 +473,71 @@ export class InnerPlayer {
      * @internal
      */
     private setupTabVisibilityHandling(): void {
-        document.addEventListener("visibilitychange", () => {
-            if (!this.instance) {
-                return;
-            }
-            const mode =
-                this.loadedConfig?.backgroundExecutionMode ??
-                BackgroundExecutionMode.None;
-            if (document.hidden) {
-                this.lastActivePlayingState = this.instance.is_playing();
-                if (mode === BackgroundExecutionMode.MainThread) {
-                    this.instance.enable_background_tick_mode();
-                    if (this.lastActivePlayingState) {
-                        this.startBackgroundTick();
-                    }
-                } else {
-                    this.instance.pause();
+        // The document whose visibility matters is the one that holds the player, which
+        // changes when the embedder moves the player element (see adoptedToDocument).
+        this.visibilityDocument?.removeEventListener(
+            "visibilitychange",
+            this.onVisibilityChange,
+        );
+        this.visibilityDocument = this.element.ownerDocument;
+        this.visibilityDocument.addEventListener(
+            "visibilitychange",
+            this.onVisibilityChange,
+        );
+    }
+
+    private visibilityDocument: Document | null = null;
+
+    private readonly onVisibilityChange = (): void => {
+        if (!this.instance) {
+            return;
+        }
+        const mode =
+            this.loadedConfig?.backgroundExecutionMode ??
+            BackgroundExecutionMode.None;
+        this.hiddenApplied = this.element.ownerDocument.hidden;
+        if (this.hiddenApplied) {
+            this.lastActivePlayingState = this.instance.is_playing();
+            if (mode === BackgroundExecutionMode.MainThread) {
+                this.instance.enable_background_tick_mode();
+                if (this.lastActivePlayingState) {
+                    this.startBackgroundTick();
                 }
             } else {
-                if (mode === BackgroundExecutionMode.MainThread) {
-                    this.stopBackgroundTick();
-                    this.instance.restart_animation_loop();
-                }
-                if (this.lastActivePlayingState) {
-                    this.instance.play();
-                }
-                // Browsers may auto-suspend AudioContext in background tabs.
-                this.instance.audio_context()?.resume();
+                this.instance.pause();
             }
-        });
+        } else {
+            if (mode === BackgroundExecutionMode.MainThread) {
+                this.stopBackgroundTick();
+                this.instance.restart_animation_loop();
+            }
+            if (this.lastActivePlayingState) {
+                this.instance.play();
+            }
+            // Browsers may auto-suspend AudioContext in background tabs.
+            this.instance.audio_context()?.resume();
+        }
+    };
+
+    /**
+     * Called when the player element is adopted by another document (the embedder moved it,
+     * e.g. into a popup window): animation frames, keyboard events and page visibility then
+     * come from that document's window.
+     * @internal
+     */
+    adoptedToDocument(): void {
+        this.setupTabVisibilityHandling();
+        this.instance?.rebind_window();
+        // No visibilitychange event fires on the new document: apply its visibility now if it
+        // differs, so that a player that went to the background while its previous document was
+        // hidden comes back in a visible one (and the other way round).
+        if (this.element.ownerDocument.hidden !== this.hiddenApplied) {
+            this.onVisibilityChange();
+        }
     }
+
+    /** Whether the player was last set up for a hidden document (see onVisibilityChange). */
+    private hiddenApplied = false;
 
     /**
      * Starts a background tick loop while the tab is hidden.
