@@ -96,7 +96,17 @@ export class RufflePlayerElement extends HTMLElement implements PlayerElement {
         }
     }
 
+    adoptedCallback(): void {
+        // Moved to another document (e.g. a popup window): follow its window
+        this.#inner.adoptedToDocument();
+    }
+
     disconnectedCallback(): void {
+        // Lifecycle callbacks run once the DOM operation is complete: a player that is still
+        // connected was moved elsewhere (possibly into another document) and keeps running.
+        if (this.isConnected) {
+            return;
+        }
         this.#inner.destroy();
     }
 
