@@ -781,6 +781,9 @@ export class InnerPlayer {
             this.panic(e);
             throw e;
         });
+        // The element may have been moved to another document while the instance was being built,
+        // when there was no instance to rebind yet (see adoptedToDocument).
+        this.instance!.rebind_window();
 
         for (const name of this.localConnectionHandlers.keys()) {
             if (!this.instance!.local_connection_listen(name)) {

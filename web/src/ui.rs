@@ -244,17 +244,20 @@ impl UiBackend for WebUiBackend {
         // We use `document.execCommand("copy")` as `navigator.clipboard.writeText("string")`
         // is available only in secure contexts (HTTPS).
         if let Some(element) = self.canvas.parent_element() {
-            let window = web_sys::window().expect("window()");
-            let document: HtmlDocument = window
-                .document()
+            // The document that holds the player, which is not the one Ruffle runs in when the
+            // embedder moved the player element to another document (e.g. a popup window): the
+            // copy command acts on the selection of that document. Its objects then come from
+            // another realm, where `instanceof` checks (`dyn_into`) fail: they are cast unchecked.
+            let document: HtmlDocument = self
+                .canvas
+                .owner_document()
+                .or_else(|| web_sys::window().and_then(|window| window.document()))
                 .expect("document()")
-                .dyn_into()
-                .expect("document() didn't give us a document");
+                .unchecked_into();
             let textarea: HtmlTextAreaElement = document
                 .create_element("textarea")
                 .expect("create_element() must succeed")
-                .dyn_into()
-                .expect("create_element(\"textarea\") didn't give us a textarea");
+                .unchecked_into();
 
             let editing_text = self.js_player.is_virtual_keyboard_focused();
             textarea.set_value(&content);
