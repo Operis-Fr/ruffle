@@ -562,7 +562,7 @@ impl<'gc> MovieClip<'gc> {
                 TagCode::FrameLabel => shared.frame_label(reader),
                 TagCode::JpegTables => shared.jpeg_tables(context, reader),
                 TagCode::ShowFrame => shared.show_frame(reader),
-                TagCode::ScriptLimits => shared.script_limits(reader, context.avm1),
+                TagCode::ScriptLimits => shared.script_limits(context, reader),
                 TagCode::SoundStreamHead => shared.sound_stream_head(reader, 1),
                 TagCode::SoundStreamHead2 => shared.sound_stream_head(reader, 2),
                 TagCode::VideoFrame => shared.preload_video_frame(context, reader),
@@ -4042,11 +4042,21 @@ impl<'gc, 'a> MovieClipShared<'gc> {
     }
 
     #[inline]
-    fn script_limits(&self, reader: &mut SwfStream<'a>, avm: &mut Avm1<'gc>) -> Result<(), Error> {
+    fn script_limits(
+        &self,
+        context: &mut UpdateContext<'gc>,
+        reader: &mut SwfStream<'a>,
+    ) -> Result<(), Error> {
         let max_recursion_depth = reader.read_u16()?;
-        let _timeout_in_seconds = reader.read_u16()?;
+        let timeout_in_seconds = reader.read_u16()?;
 
-        avm.set_max_recursion_depth(max_recursion_depth);
+        context.avm1.set_max_recursion_depth(max_recursion_depth);
+        // Like Flash Player, the movie can raise the script timeout (Flex compilers
+        // write 60 s by default). It never lowers a longer limit set by the embedder.
+        let timeout = std::time::Duration::from_secs(timeout_in_seconds.into());
+        if timeout > *context.max_execution_duration {
+            *context.max_execution_duration = timeout;
+        }
 
         Ok(())
     }
