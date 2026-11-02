@@ -1,7 +1,10 @@
 //! RegExp Structure
 
 use std::borrow::Cow;
+use std::cell::RefCell;
+use std::collections::{HashMap, VecDeque};
 use std::num::NonZero;
+use std::rc::Rc;
 
 use crate::avm2::Error;
 use crate::avm2::activation::Activation;
@@ -27,7 +30,7 @@ pub struct RegExp<'gc> {
     last_index: usize,
 
     #[collect(require_static)]
-    cached_regex: Option<Result<regress::Regex, ()>>,
+    cached_regex: Option<Result<Rc<regress::Regex>, ()>>,
     cached_text: Option<CachedText<'gc>>,
 }
 
@@ -96,22 +99,10 @@ impl<'gc> RegExp<'gc> {
         F: FnOnce(&mut CachedText<'gc>, regress::Match) -> T,
     {
         if self.cached_regex.is_none() {
-            let re = regress::Regex::with_flags(
-                &self.source.to_utf8_lossy(),
-                regress::Flags {
-                    icase: self.flags.contains(RegExpFlags::IGNORE_CASE),
-                    multiline: self.flags.contains(RegExpFlags::MULTILINE),
-                    dot_all: self.flags.contains(RegExpFlags::DOTALL),
-                    extended: self.flags.contains(RegExpFlags::EXTENDED),
-                    no_opt: false,
-                    unicode: false,
-                    unicode_sets: false,
-                },
-            );
-            self.cached_regex = Some(re.map_err(drop));
+            self.cached_regex = Some(compile_shared(&self.source.to_utf8_lossy(), self.flags));
         }
 
-        let regex = match self.cached_regex.as_mut() {
+        let regex = match self.cached_regex.as_ref() {
             Some(Ok(re)) => re,
             Some(Err(_)) => return None,
             None => unreachable!(),
@@ -409,6 +400,63 @@ impl<'gc> RegExp<'gc> {
 
         Some(re_match)
     }
+}
+
+/// Number of compiled regular expressions kept in the shared cache.
+const SHARED_CACHE_CAPACITY: usize = 256;
+
+/// Source and compilation flags (`GLOBAL` excluded: it does not change the compiled regex).
+type SharedCacheKey = (String, u8);
+
+/// Compiled regular expressions shared by all `RegExp` objects with the same source and flags.
+///
+/// A regex literal creates a new `RegExp` object each time it is evaluated, and `RegExp::clone`
+/// drops the per-object cache: without this cache, code that runs a literal in a loop recompiles
+/// (parses and optimizes) the same regex at every iteration.
+#[derive(Default)]
+struct SharedCache {
+    regexes: HashMap<SharedCacheKey, Rc<regress::Regex>>,
+    /// Insertion order, for first-in first-out eviction.
+    order: VecDeque<SharedCacheKey>,
+}
+
+thread_local! {
+    static SHARED_CACHE: RefCell<SharedCache> = RefCell::new(SharedCache::default());
+}
+
+fn compile_shared(source: &str, flags: RegExpFlags) -> Result<Rc<regress::Regex>, ()> {
+    let key = (
+        source.to_string(),
+        flags.difference(RegExpFlags::GLOBAL).bits(),
+    );
+    if let Some(regex) = SHARED_CACHE.with_borrow(|cache| cache.regexes.get(&key).cloned()) {
+        return Ok(regex);
+    }
+    let regex = Rc::new(
+        regress::Regex::with_flags(
+            source,
+            regress::Flags {
+                icase: flags.contains(RegExpFlags::IGNORE_CASE),
+                multiline: flags.contains(RegExpFlags::MULTILINE),
+                dot_all: flags.contains(RegExpFlags::DOTALL),
+                extended: flags.contains(RegExpFlags::EXTENDED),
+                no_opt: false,
+                unicode: false,
+                unicode_sets: false,
+            },
+        )
+        .map_err(drop)?,
+    );
+    SHARED_CACHE.with_borrow_mut(|cache| {
+        if cache.order.len() >= SHARED_CACHE_CAPACITY
+            && let Some(oldest) = cache.order.pop_front()
+        {
+            cache.regexes.remove(&oldest);
+        }
+        cache.order.push_back(key.clone());
+        cache.regexes.insert(key, regex.clone());
+    });
+    Ok(regex)
 }
 
 #[derive(Collect, Debug)]
