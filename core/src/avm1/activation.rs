@@ -548,7 +548,7 @@ impl<'a, 'gc> Activation<'a, 'gc> {
         *self.context.actions_since_timeout_check += 1;
         if *self.context.actions_since_timeout_check >= 2000 {
             *self.context.actions_since_timeout_check = 0;
-            if self.context.update_start.elapsed() >= self.context.max_execution_duration {
+            if self.context.update_start.elapsed() >= *self.context.max_execution_duration {
                 return Err(Error::ExecutionTimeout);
             }
         }

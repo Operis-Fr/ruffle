@@ -2452,7 +2452,7 @@ impl Player {
                 external_interface,
                 start_time: this.start_time,
                 update_start: Instant::now(),
-                max_execution_duration: this.max_execution_duration,
+                max_execution_duration: &mut this.max_execution_duration,
                 focus_tracker: stage.focus_tracker(),
                 times_get_time_called: 0,
                 time_offset: &mut this.time_offset,
