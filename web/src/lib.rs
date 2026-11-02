@@ -1,6 +1,8 @@
 #![deny(clippy::unwrap_used)]
 
 //! Ruffle web frontend.
+#[cfg(all(not(target_feature = "atomics"), target_arch = "wasm32"))]
+mod allocator;
 mod audio;
 mod builder;
 mod external_interface;
@@ -12,11 +14,6 @@ mod storage;
 mod ui;
 mod zip;
 
-// The default WebAssembly allocator (dlmalloc) took most of the CPU time of a Flex application
-// while it loaded its classes and filled its home screen; Talc is much faster.
-#[cfg(all(not(target_feature = "atomics"), target_family = "wasm"))]
-#[global_allocator]
-static TALC: talc::wasm::WasmDynamicTalc = talc::wasm::new_wasm_dynamic_allocator();
 
 use crate::builder::RuffleInstanceBuilder;
 use external_interface::{external_to_js_value, js_to_external_value};
