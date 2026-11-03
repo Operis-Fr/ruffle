@@ -228,7 +228,8 @@ fn matches_any(patterns: &[Pattern], text: &str) -> bool {
 pub struct MirrorFilter {
     /// Emit buttons and containers that handle the mouse as a whole.
     pub interactive: bool,
-    /// Emit text fields (`EditText`).
+    /// Emit text fields (`EditText`), and components with a `text`
+    /// property (e.g. Flex `TextInput`, `Label`).
     pub text: bool,
     /// Emit any object whose Flex `id` is set, and list item renderers,
     /// even if neither interactive nor text.
@@ -286,6 +287,9 @@ struct TrackedNode {
     class_excluded: bool,
     /// Whether the class looks like a list item renderer.
     item_renderer: bool,
+    /// Whether the class is a component with a `text` property (other than
+    /// a text field), e.g. a Flex `TextInput` or `Label`.
+    text_component: bool,
     /// Whether `props.id` has been read.
     identity_read: bool,
     /// Whether all of `props` has been read.
@@ -331,6 +335,7 @@ impl Tracker {
                 class_name,
                 class_excluded,
                 item_renderer: false,
+                text_component: false,
                 identity_read: false,
                 props_read: false,
                 props: Avm2Props::default(),
@@ -642,6 +647,7 @@ impl<'gc> Mirror<'gc> {
             });
             if is_new && !node.class_excluded {
                 node.item_renderer = reader.is_item_renderer(object);
+                node.text_component = reader.is_text_component(object);
             }
             let kind = kind_of(object);
             let name = object.name().map(|name| name.to_string());
@@ -649,8 +655,10 @@ impl<'gc> Mirror<'gc> {
             let mut candidate = !node.class_excluded
                 && match kind {
                     MirrorKind::Text => filter.text,
-                    MirrorKind::Interactive => filter.interactive,
-                    MirrorKind::Container | MirrorKind::Other => false,
+                    MirrorKind::Interactive => {
+                        filter.interactive || filter.text && node.text_component
+                    }
+                    MirrorKind::Container | MirrorKind::Other => filter.text && node.text_component,
                 };
             if !node.class_excluded
                 && !node.identity_read
@@ -1018,6 +1026,18 @@ impl<'a, 'gc> PropertyReader<'a, 'gc> {
         value.coerce_to_i32(&mut activation).ok()
     }
 
+    /// A component with a `text` property, so that e.g. a Flex `TextInput`
+    /// without `id` is emitted itself, rather than only its inner text field.
+    fn is_text_component(&mut self, object: DisplayObject<'gc>) -> bool {
+        if object.as_edit_text().is_some() {
+            return false;
+        }
+        let Some(object) = object.object2() else {
+            return false;
+        };
+        self.has_trait(Avm2Object::from(object), "text")
+    }
+
     fn is_item_renderer(&mut self, object: DisplayObject<'gc>) -> bool {
         let Some(object) = object.object2() else {
             return false;
@@ -1233,6 +1253,32 @@ mod tests {
         assert_eq!(uids, vec![Some(1)]);
         assert_eq!(removed, vec![3]);
         assert!(!tracker.truncated);
+    }
+
+    #[test]
+    fn disabling_forgets_tracked_objects() {
+        let mut mirror = Mirror::new();
+        mirror.set_enabled(true);
+        assert!(mirror.reset_pending);
+        pass(&mut mirror.tracker, &[0x10, 0x20], 100);
+        mirror.mark_structure();
+        assert_eq!(mirror.tracker.nodes.len(), 2);
+
+        mirror.set_enabled(false);
+        assert!(mirror.tracker.nodes.is_empty());
+        assert!(mirror.tracked_objects.is_empty());
+        assert!(!mirror.structure_dirty && !mirror.reset_pending);
+
+        // Hooks do nothing while disabled.
+        mirror.mark_structure();
+        assert!(!mirror.structure_dirty);
+
+        // A filter change forgets too, and resets the receiver.
+        mirror.set_enabled(true);
+        pass(&mut mirror.tracker, &[0x10], 100);
+        mirror.set_filter(MirrorFilter::default());
+        assert!(mirror.tracker.nodes.is_empty());
+        assert!(mirror.reset_pending);
     }
 
     #[test]
