@@ -1,6 +1,8 @@
 #![deny(clippy::unwrap_used)]
 
 //! Ruffle web frontend.
+#[cfg(all(not(target_feature = "atomics"), target_arch = "wasm32"))]
+mod allocator;
 mod audio;
 mod builder;
 mod external_interface;
@@ -11,6 +13,7 @@ mod navigator;
 mod storage;
 mod ui;
 mod zip;
+
 
 use crate::builder::RuffleInstanceBuilder;
 use external_interface::{external_to_js_value, js_to_external_value};
