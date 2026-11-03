@@ -606,13 +606,27 @@ impl<'gc> Mirror<'gc> {
         let mut tracker = std::mem::take(&mut mirror.tracker);
         let logged_errors = std::mem::take(&mut mirror.logged_errors);
 
-        // Text changes are reported on the nearest emitted node, so that e.g.
-        // a Flex `TextInput` sees the change of its inner text field.
-        let dirty_text: HashSet<*const DisplayObjectPtr> = dirty_objects
-            .iter()
-            .filter_map(|object| nearest_emitted(&tracker, *object))
-            .map(|(ptr, _)| ptr)
-            .collect();
+        // Text changes are reported on the nearest emitted node, and on the text
+        // components that contain it, so that e.g. a Flex `TextInput` sees the
+        // change of its inner text field.
+        let mut dirty_text: HashSet<*const DisplayObjectPtr> = HashSet::new();
+        for object in &dirty_objects {
+            let mut current = Some(*object);
+            let mut found = false;
+            while let Some(object) = current {
+                let ptr = object.as_ptr();
+                if let Some(node) = tracker.nodes.get(&ptr)
+                    && node.uid.is_some()
+                {
+                    if found && !node.text_component {
+                        break;
+                    }
+                    dirty_text.insert(ptr);
+                    found = true;
+                }
+                current = object.parent();
+            }
+        }
 
         let mut visits = Vec::with_capacity(tracker.nodes.len());
         if let Some(stage) = DisplayObject::Stage(context.stage).as_container() {
