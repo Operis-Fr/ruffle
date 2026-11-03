@@ -12,6 +12,7 @@ import {
     WindowMode,
 } from "../../public/config/index.js";
 import {
+    ContextMenuEntry,
     ExternalInterfaceHandler,
     LocalConnectionHandler,
     MirrorFilter,
@@ -1582,6 +1583,27 @@ export class InnerPlayer {
             addSeparator();
         }
 
+        if (this.embedderContextMenuItems) {
+            try {
+                for (const entry of this.embedderContextMenuItems()) {
+                    const item: ContextMenuItem = {
+                        text: entry.text,
+                        onClick: async () => entry.onClick(),
+                    };
+                    if (entry.enabled !== undefined) {
+                        item.enabled = entry.enabled;
+                    }
+                    if (entry.checked !== undefined) {
+                        item.checked = entry.checked;
+                    }
+                    items.push(item);
+                }
+            } catch (e) {
+                console.error("Error in the context menu items handler", e);
+            }
+            addSeparator();
+        }
+
         if (this.fullscreenEnabled) {
             if (this.isFullscreen) {
                 items.push({
@@ -2180,6 +2202,11 @@ export class InnerPlayer {
      * Receives the frames of the display tree mirror.
      */
     public mirrorHandler: ((frame: MirrorFrame) => void) | null = null;
+
+    /**
+     * Extra entries of the context menu, provided by the embedding page.
+     */
+    public embedderContextMenuItems: (() => ContextMenuEntry[]) | null = null;
 
     get mirrorEnabled(): boolean {
         return this.instance?.mirror_enabled() ?? this.mirrorWanted === true;
