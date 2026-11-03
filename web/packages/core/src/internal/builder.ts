@@ -148,6 +148,10 @@ export function configureBuilder(
     if (isExplicit(config.deviceFontRenderer)) {
         builder.setDeviceFontRenderer(config.deviceFontRenderer);
     }
+
+    if (isExplicit(config.mirror)) {
+        builder.setMirror(config.mirror);
+    }
 }
 
 /**

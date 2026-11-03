@@ -812,6 +812,14 @@ export interface BaseLoadOptions {
      * @default BackgroundExecutionMode.MainThread
      */
     backgroundExecutionMode?: BackgroundExecutionMode;
+
+    /**
+     * Whether the display tree mirror is active from the start
+     * (see `mirrorEnabled` on the player). It can also be activated later.
+     *
+     * @default false
+     */
+    mirror?: boolean;
 }
 
 /**

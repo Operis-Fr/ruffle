@@ -42,6 +42,126 @@ export type NavigateToUrlHandler = (
     variables: Record<string, string> | null,
 ) => boolean;
 
+/**
+ * A node of the display tree mirror: a display object the mirror's filter retains.
+ * Bounds are CSS pixels relative to the player's canvas.
+ */
+export interface MirrorNode {
+    /** Identifier of the node, given by the mirror; a new one is given when an object comes back on stage. */
+    uid: number;
+    /** uid of the nearest emitted ancestor, or `null` at the root. */
+    parent: number | null;
+    /** Position among all the children of the display parent (render order). */
+    index: number;
+    /**
+     * `interactive` for buttons and containers handling the mouse as a whole (`mouseChildren = false`),
+     * `container` for other containers, `text` for text fields.
+     */
+    kind: "container" | "interactive" | "text" | "other";
+    /** Qualified AVM2 class name, e.g. `mx.controls::TextInput`. */
+    className: string;
+    /** `DisplayObject.name`. */
+    name: string | null;
+    /** Flex `UIComponent.id`. */
+    id: string | null;
+    automationName: string | null;
+    label: string | null;
+    text: string | null;
+    toolTip: string | null;
+    enabled: boolean | null;
+    /** `TextField` editability, or the `editable` property of the component. */
+    editable: boolean | null;
+    selectedIndex: number | null;
+    /** `itemIndex` of a Spark item renderer, `listData.rowIndex` of an mx one. */
+    itemIndex: number | null;
+    /** Whether the object and all its ancestors are visible. */
+    visible: boolean;
+    /** Whether the object, or a descendant that is not emitted, has the focus. */
+    focused: boolean;
+    bounds: { x: number; y: number; width: number; height: number };
+}
+
+/**
+ * Statistics of a frame of the display tree mirror.
+ */
+export interface MirrorStats {
+    /** Display objects visited. */
+    nodesWalked: number;
+    /** Display objects retained by the filter, changed or not. */
+    nodesEmitted: number;
+    /** ActionScript getters called. */
+    gettersCalled: number;
+    /** Duration of the walk, in microseconds. */
+    elapsedUs: number;
+    /** Whether the filter's `maxNodes` was reached. */
+    truncated: boolean;
+}
+
+/**
+ * Changes of the display tree mirror since the previous frame.
+ */
+export interface MirrorFrame {
+    frame: number;
+    /** When `true`, the receiver must drop everything it knows: `upserts` is the whole mirror. */
+    reset: boolean;
+    /** New or changed nodes, parents before children. */
+    upserts: MirrorNode[];
+    /** uids of the nodes that left the mirror. */
+    removed: number[];
+    events: MirrorEvent[];
+    stats: MirrorStats;
+}
+
+/**
+ * What happened to a node of the mirror since the previous frame.
+ */
+export type MirrorEvent =
+    | { type: "click"; uid: number; button: "left" | "right" | "middle" }
+    | { type: "textInput"; uid: number }
+    | { type: "focus"; uid: number | null };
+
+/**
+ * Which display objects the mirror retains. Omitted fields take their default value.
+ */
+export interface MirrorFilter {
+    /** Buttons and containers handling the mouse as a whole. Default `true`. */
+    interactive?: boolean;
+    /** Text fields. Default `true`. */
+    text?: boolean;
+    /** Objects with a Flex `id`, and list item renderers. Default `true`. */
+    identified?: boolean;
+    /** Objects that are hidden or have a hidden ancestor; otherwise only the root of a hidden subtree is kept. Default `false`. */
+    emitHidden?: boolean;
+    /** Glob patterns (`*`, `?`) on the qualified class name, e.g. `mx.skins::*`. */
+    excludeClasses?: string[];
+    /** Glob patterns on the Flex id. */
+    excludeIds?: string[];
+    /** Glob patterns on the instance name. */
+    excludeNames?: string[];
+    /** Maximum number of nodes; beyond, `stats.truncated` is set. Default 5000. */
+    maxNodes?: number;
+}
+
+/**
+ * An input event dispatched to the movie by {@link PlayerV1.mirrorInject}.
+ * Coordinates are CSS pixels relative to the canvas.
+ */
+export type MirrorInputEvent =
+    | {
+          type: "mouseMove" | "mouseDown" | "mouseUp";
+          x: number;
+          y: number;
+          button?: "left" | "right" | "middle";
+      }
+    | { type: "wheel"; x: number; y: number; deltaY: number }
+    /** Typed text, for the focused text field (as typing it would). */
+    | { type: "text"; text: string }
+    /** Editing keys; `tab` moves the focus. */
+    | {
+          type: "textControl";
+          code: "selectAll" | "backspace" | "delete" | "enter" | "tab";
+      };
+
 export interface PlayerV1 {
     /**
      * Adds a handler for arbitrary "fs commands" from a movie in this player.
@@ -275,4 +395,50 @@ export interface PlayerV1 {
      * (e.g. to open it in a tab of the embedding page). `null` by default.
      */
     navigateToUrlHandler: NavigateToUrlHandler | null;
+
+    /**
+     * Whether the display tree mirror is active. `false` by default (load option `mirror`).
+     * Activating it delivers a frame with `reset` set to {@link mirrorHandler} at the next tick.
+     */
+    mirrorEnabled: boolean;
+
+    /**
+     * Receives a frame of the mirror after the ticks where something changed, at most every
+     * `minMs` (see {@link mirrorSetIntervals}). `null` by default.
+     */
+    mirrorHandler: ((frame: MirrorFrame) => void) | null;
+
+    /**
+     * Walks the display tree, reading every property again.
+     *
+     * @returns A full frame of the mirror (`reset` set), also delivered to {@link mirrorHandler};
+     * `null` when the mirror is not active.
+     */
+    mirrorRefresh(): MirrorFrame | null;
+
+    /**
+     * Sets which display objects the mirror retains. The next frame has `reset` set.
+     *
+     * @param filter The filter; omitted fields take their default value.
+     * @throws {Error} If the filter is malformed.
+     */
+    mirrorSetFilter(filter: MirrorFilter): void;
+
+    /**
+     * Sets the minimal delay between two frames of the mirror (default 100 ms), and the period
+     * of the slow refresh of the properties read from ActionScript (default 1000 ms, 0 = never).
+     *
+     * @param minMs Minimal delay between two frames, in milliseconds.
+     * @param propertiesMs Period of the slow refresh, in milliseconds.
+     */
+    mirrorSetIntervals(minMs: number, propertiesMs: number): void;
+
+    /**
+     * Dispatches an input event to the movie, as the user would. Available even when the mirror
+     * is not active. It does not give the focus to the player.
+     *
+     * @param event The event, in CSS pixels relative to the canvas.
+     * @throws {Error} If the event is malformed.
+     */
+    mirrorInject(event: MirrorInputEvent): void;
 }
