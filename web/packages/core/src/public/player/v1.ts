@@ -66,6 +66,7 @@ export interface MirrorNode {
     id: string | null;
     automationName: string | null;
     label: string | null;
+    /** `null` for password fields: their text is never mirrored. */
     text: string | null;
     toolTip: string | null;
     enabled: boolean | null;
