@@ -34,6 +34,7 @@ mod library;
 pub mod limits;
 pub mod loader;
 mod local_connection;
+pub mod mirror;
 mod net_connection;
 mod orphan_manager;
 pub mod pixel_bender;
