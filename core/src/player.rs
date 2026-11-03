@@ -1149,7 +1149,26 @@ impl Player {
             | PlayerEvent::GamepadButtonUp { .. }
             | PlayerEvent::Ime { .. }
             | PlayerEvent::TextInput { .. }
-            | PlayerEvent::TextControl { .. } => self.handle_input_event(event),
+            | PlayerEvent::TextControl { .. } => {
+                let edits_text = matches!(
+                    event,
+                    PlayerEvent::KeyDown { .. }
+                        | PlayerEvent::Ime { .. }
+                        | PlayerEvent::TextInput { .. }
+                        | PlayerEvent::TextControl { .. }
+                );
+                let handled = self.handle_input_event(event);
+                if edits_text {
+                    // Text components that are not an `EditText` (e.g. TLF fields)
+                    // change their text without a hook: let the mirror read it again.
+                    self.mutate_with_update_context(|context| {
+                        if let Some(focus) = context.focus_tracker.get() {
+                            context.mirror.mark_text(focus.as_displayobject());
+                        }
+                    });
+                }
+                handled
+            }
         }
     }
 
