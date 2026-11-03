@@ -5,6 +5,7 @@ import type {
     URLLoadOptions,
 } from "../../public/config/index.js";
 import type {
+    ContextMenuEntry,
     ExternalInterfaceHandler,
     LocalConnectionHandler,
     MirrorFilter,
@@ -181,5 +182,13 @@ export class PlayerV1Impl implements PlayerV1 {
 
     mirrorInject(event: MirrorInputEvent): void {
         this.#inner.mirrorInject(event);
+    }
+
+    get contextMenuItems(): (() => ContextMenuEntry[]) | null {
+        return this.#inner.embedderContextMenuItems;
+    }
+
+    set contextMenuItems(items: (() => ContextMenuEntry[]) | null) {
+        this.#inner.embedderContextMenuItems = items;
     }
 }

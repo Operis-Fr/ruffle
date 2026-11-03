@@ -162,6 +162,18 @@ export type MirrorInputEvent =
           code: "selectAll" | "backspace" | "delete" | "enter" | "tab";
       };
 
+/**
+ * An entry added by the embedding page to Ruffle's context menu.
+ */
+export interface ContextMenuEntry {
+    text: string;
+    /** When defined, the entry shows a checkmark column. */
+    checked?: boolean;
+    /** Default `true`. */
+    enabled?: boolean;
+    onClick: () => void;
+}
+
 export interface PlayerV1 {
     /**
      * Adds a handler for arbitrary "fs commands" from a movie in this player.
@@ -441,4 +453,10 @@ export interface PlayerV1 {
      * @throws {Error} If the event is malformed.
      */
     mirrorInject(event: MirrorInputEvent): void;
+
+    /**
+     * Extra entries of Ruffle's context menu, asked for each time the menu opens.
+     * They are shown after the movie's entries. `null` by default.
+     */
+    contextMenuItems: (() => ContextMenuEntry[]) | null;
 }
