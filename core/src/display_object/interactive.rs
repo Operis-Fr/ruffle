@@ -313,6 +313,10 @@ pub trait TInteractiveObject<'gc>:
                     ClipEvent::MiddlePress => MouseButton::Middle,
                     _ => unreachable!(),
                 };
+                activation
+                    .context
+                    .mirror
+                    .push_click(self.as_displayobject(), button);
                 let avm2_event = Avm2EventObject::mouse_event_down(
                     &mut activation,
                     self.as_displayobject(),

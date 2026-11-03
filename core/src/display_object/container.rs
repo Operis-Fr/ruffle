@@ -45,6 +45,7 @@ pub fn dispatch_removed_from_stage_event<'gc>(
 /// Dispatch the `removed` event on a child and log any errors encountered
 /// whilst doing so.
 pub fn dispatch_removed_event<'gc>(child: DisplayObject<'gc>, context: &mut UpdateContext<'gc>) {
+    context.mirror.mark_structure();
     if let Some(object) = child.object2() {
         let removed_evt = Avm2EventObject::bare_event(context, "removed", true, false);
         Avm2::dispatch_event(context, removed_evt, object.into());
@@ -60,6 +61,7 @@ pub fn dispatch_added_to_stage_event_only<'gc>(
     child: DisplayObject<'gc>,
     context: &mut UpdateContext<'gc>,
 ) {
+    context.mirror.mark_structure();
     if let Some(object) = child.object2() {
         let added_evt = Avm2EventObject::bare_default_event(context, "addedToStage");
         Avm2::dispatch_event(context, added_evt, object.into());
@@ -89,6 +91,7 @@ pub fn dispatch_added_to_stage_event<'gc>(
 /// Dispatch an `added` event to one object, and log any errors encountered
 /// whilst doing so.
 pub fn dispatch_added_event_only<'gc>(child: DisplayObject<'gc>, context: &mut UpdateContext<'gc>) {
+    context.mirror.mark_structure();
     if let Some(object) = child.object2() {
         let added_evt = Avm2EventObject::bare_event(context, "added", true, false);
         Avm2::dispatch_event(context, added_evt, object.into());
