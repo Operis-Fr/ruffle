@@ -189,8 +189,9 @@ pub struct UpdateContext<'gc> {
     pub update_start: Instant,
 
     /// The maximum amount of time that can be called before a `Error::ExecutionTimeout`
-    /// is raised. This defaults to 15 seconds but can be changed.
-    pub max_execution_duration: Duration,
+    /// is raised. This defaults to 15 seconds but can be changed, and raised by the
+    /// `ScriptLimits` tag of a movie.
+    pub max_execution_duration: &'gc mut Duration,
 
     /// A tracker for the current keyboard focused element
     pub focus_tracker: FocusTracker<'gc>,
