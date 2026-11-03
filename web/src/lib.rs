@@ -9,11 +9,11 @@ mod external_interface;
 mod input;
 mod local_connection;
 mod log_adapter;
+mod mirror;
 mod navigator;
 mod storage;
 mod ui;
 mod zip;
-
 
 use crate::builder::RuffleInstanceBuilder;
 use external_interface::{external_to_js_value, js_to_external_value};
@@ -22,6 +22,7 @@ use js_sys::{Array, Error as JsError, Uint8Array};
 use local_connection::{amf_to_js_value, js_to_amf_value};
 use ruffle_core::context::UpdateContext;
 use ruffle_core::events::{GamepadButton, MouseButton, MouseWheelDelta, TextControlCode};
+use ruffle_core::mirror::MirrorFilter;
 use ruffle_core::tag_utils::SwfMovieData;
 use ruffle_core::{FloatDuration, Player, PlayerEvent, StaticCallstack, ViewportDimensions};
 use ruffle_web_common::JsResult;
@@ -32,6 +33,7 @@ use std::rc::Rc;
 use std::str::FromStr;
 use std::sync::Once;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use std::{cell::RefCell, error::Error, num::NonZeroI32};
 use tracing_subscriber::layer::{Layered, SubscriberExt};
 use tracing_subscriber::registry::Registry;
@@ -179,6 +181,9 @@ unsafe extern "C" {
         method: Option<String>,
         variables: JsValue,
     ) -> Result<JsValue, JsValue>;
+
+    #[wasm_bindgen(method, js_name = "onMirrorFrame")]
+    fn on_mirror_frame(this: &JavascriptPlayer, frame: JsValue);
 
     #[wasm_bindgen(method, js_name = "onLocalConnectionMessage")]
     fn on_local_connection_message(
@@ -593,6 +598,64 @@ impl RuffleHandle {
         let args = args.iter().map(js_to_amf_value).collect();
         let _ =
             self.with_core_mut(|core| core.send_external_local_connection(name, method_name, args));
+    }
+
+    /// Whether the display tree mirror is active.
+    pub fn mirror_enabled(&self) -> bool {
+        self.with_core_mut(|core| core.mirror_enabled())
+            .unwrap_or_default()
+    }
+
+    /// Activates or deactivates the display tree mirror. Frames are passed
+    /// to `onMirrorFrame` after the ticks where something changed.
+    pub fn set_mirror_enabled(&self, enabled: bool) {
+        let _ = self.with_core_mut(|core| core.set_mirror_enabled(enabled));
+    }
+
+    /// Returns a full frame of the mirror (`reset` set), or `undefined` if
+    /// the mirror is not active.
+    pub fn mirror_refresh(&self) -> JsValue {
+        self.with_core_mut(|core| core.mirror_refresh())
+            .ok()
+            .flatten()
+            .map(|frame| mirror::mirror_frame_to_js(&frame))
+            .unwrap_or(JsValue::UNDEFINED)
+    }
+
+    /// Sets which display objects the mirror emits (`MirrorFilter`).
+    pub fn set_mirror_filter(&self, filter: JsValue) -> Result<(), JsValue> {
+        let filter: MirrorFilter = serde_wasm_bindgen::from_value(filter)
+            .map_err(|error| JsError::new(&format!("Invalid mirror filter: {error}")))?;
+        let _ = self.with_core_mut(|core| core.set_mirror_filter(filter));
+        Ok(())
+    }
+
+    /// Sets the minimal delay between two mirror frames, and the period of
+    /// the slow refresh of ActionScript properties (0 = never), in milliseconds.
+    pub fn set_mirror_intervals(&self, min_ms: u32, properties_ms: u32) {
+        let _ = self.with_core_mut(|core| {
+            core.set_mirror_intervals(
+                Duration::from_millis(min_ms.into()),
+                Duration::from_millis(properties_ms.into()),
+            )
+        });
+    }
+
+    /// Dispatches an input event (`MirrorInputEvent`) to the movie, without
+    /// going through the DOM listeners. Coordinates are CSS pixels relative
+    /// to the canvas.
+    pub fn mirror_inject(&self, event: JsValue) -> Result<(), JsValue> {
+        let event: mirror::MirrorInputEvent = serde_wasm_bindgen::from_value(event)
+            .map_err(|error| JsError::new(&format!("Invalid mirror input event: {error}")))?;
+        let device_pixel_ratio = self
+            .with_instance(|instance| instance.device_pixel_ratio)
+            .unwrap_or(1.0);
+        let _ = self.with_core_mut(|core| {
+            for event in event.into_player_events(device_pixel_ratio) {
+                core.handle_event(event);
+            }
+        });
+        Ok(())
     }
 
     pub fn set_trace_observer(&self, observer: JsValue) {
@@ -1360,6 +1423,7 @@ impl RuffleHandle {
 
         // Tick the Ruffle core.
         let mut local_connection_messages = Vec::new();
+        let mut mirror_frames = Vec::new();
         let _ = self.with_core_mut(|core| {
             for event in gamepad_button_events {
                 core.handle_event(event);
@@ -1386,7 +1450,19 @@ impl RuffleHandle {
             }
 
             local_connection_messages = core.take_external_local_connection_messages();
+            mirror_frames = core.take_mirror_frames();
         });
+
+        // Likewise for the frames of the display tree mirror.
+        if !mirror_frames.is_empty() {
+            let _ = self.with_instance(|instance| {
+                for frame in &mirror_frames {
+                    instance
+                        .js_player
+                        .on_mirror_frame(mirror::mirror_frame_to_js(frame));
+                }
+            });
+        }
 
         // Deliver LocalConnection messages to JavaScript once the core is unlocked,
         // so that the handlers can answer right away.
