@@ -126,7 +126,7 @@ export type MirrorEvent =
 export interface MirrorFilter {
     /** Buttons and containers handling the mouse as a whole. Default `true`. */
     interactive?: boolean;
-    /** Text fields. Default `true`. */
+    /** Text fields, and components with a `text` property (e.g. Flex `TextInput`, `Label`). Default `true`. */
     text?: boolean;
     /** Objects with a Flex `id`, and list item renderers. Default `true`. */
     identified?: boolean;
@@ -416,7 +416,8 @@ export interface PlayerV1 {
 
     /**
      * Receives a frame of the mirror after the ticks where something changed, at most every
-     * `minMs` (see {@link mirrorSetIntervals}). `null` by default.
+     * `minMs` (see {@link mirrorSetIntervals}). Frames are delivered after the tick, once the
+     * player is unlocked: the handler may call the player back. `null` by default.
      */
     mirrorHandler: ((frame: MirrorFrame) => void) | null;
 
