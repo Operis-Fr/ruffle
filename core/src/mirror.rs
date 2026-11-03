@@ -88,6 +88,8 @@ pub struct MirrorNode {
     pub id: Option<String>,
     pub automation_name: Option<String>,
     pub label: Option<String>,
+    /// `None` for password fields (`TextField.displayAsPassword`, or the
+    /// `displayAsPassword` property of a component).
     pub text: Option<String>,
     pub tool_tip: Option<String>,
     pub enabled: Option<bool>,
@@ -707,7 +709,9 @@ impl<'gc> Mirror<'gc> {
                 Some(text) => Some(text.is_editable()),
                 None => node.props.editable,
             };
+            // The text of a password field is never mirrored.
             let text = match object.as_edit_text() {
+                Some(text) if text.is_password() => None,
                 Some(text) => Some(truncate(text.text().to_string())),
                 None => node.props.text.clone(),
             };
@@ -1059,6 +1063,10 @@ impl<'a, 'gc> PropertyReader<'a, 'gc> {
     fn read_text(&mut self, object: DisplayObject<'gc>, class_name: &str) -> Option<String> {
         // The text of an `EditText` is read directly.
         if object.as_edit_text().is_some() {
+            return None;
+        }
+        // The text of a password field is never mirrored.
+        if self.read_bool(object, class_name, "displayAsPassword") == Some(true) {
             return None;
         }
         self.read_string(object, class_name, "text")
