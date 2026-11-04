@@ -241,6 +241,9 @@ impl<'gc> FocusTracker<'gc> {
         if !InteractiveObject::option_ptr_eq(old, new) {
             let focus = unlock!(Gc::write(context.gc(), self.0), FocusTrackerData, focus);
             focus.set(new);
+            context
+                .mirror
+                .push_focus(new.map(|new| new.as_displayobject()));
 
             // The highlight always follows the focus.
             self.update_highlight(context);

@@ -66,6 +66,7 @@ pub struct RuffleInstanceBuilder {
     pub(crate) url_rewrite_rules: Vec<(RegExp, String)>,
     pub(crate) scrolling_behavior: ScrollingBehavior,
     pub(crate) device_font_renderer: DeviceFontRenderer,
+    pub(crate) mirror: bool,
 }
 
 impl Default for RuffleInstanceBuilder {
@@ -106,6 +107,7 @@ impl Default for RuffleInstanceBuilder {
             url_rewrite_rules: vec![],
             scrolling_behavior: ScrollingBehavior::Smart,
             device_font_renderer: DeviceFontRenderer::Embedded,
+            mirror: false,
         }
     }
 }
@@ -149,6 +151,11 @@ impl RuffleInstanceBuilder {
             "on" => Letterbox::On,
             _ => return,
         };
+    }
+
+    #[wasm_bindgen(js_name = "setMirror")]
+    pub fn set_mirror(&mut self, value: bool) {
+        self.mirror = value;
     }
 
     #[wasm_bindgen(js_name = "setBaseUrl")]
@@ -732,6 +739,7 @@ impl RuffleInstanceBuilder {
             core.set_show_menu(self.show_menu);
             core.set_allow_fullscreen(self.allow_fullscreen);
             core.set_window_mode(self.wmode.as_deref().unwrap_or("window"));
+            core.set_mirror_enabled(self.mirror);
 
             if matches!(self.device_font_renderer, DeviceFontRenderer::Embedded) {
                 self.setup_fonts(&mut core);

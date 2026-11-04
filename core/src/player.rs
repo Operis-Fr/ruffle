@@ -51,6 +51,7 @@ use crate::loader::{LoadBehavior, LoadManager};
 use crate::local_connection::{
     ExternalLocalConnectionMessage, LocalConnectionKind, LocalConnections,
 };
+use crate::mirror::{Mirror, MirrorFilter, MirrorFrame};
 use crate::net_connection::NetConnections;
 use crate::orphan_manager::OrphanManager;
 use crate::prelude::*;
@@ -217,6 +218,9 @@ struct GcRootData<'gc> {
     /// External interface for (for example) JavaScript <-> ActionScript interaction
     external_interface: ExternalInterface<'gc>,
 
+    /// Display tree mirror for embedders.
+    mirror: Mirror<'gc>,
+
     /// Manager of active sound instances.
     audio_manager: AudioManager<'gc>,
 
@@ -269,6 +273,7 @@ impl<'gc> GcRootData<'gc> {
         &mut Timers<'gc>,
         &mut Option<ContextMenuState<'gc>>,
         &mut ExternalInterface<'gc>,
+        &mut Mirror<'gc>,
         &mut AudioManager<'gc>,
         &mut StreamManager<'gc>,
         &mut Sockets<'gc>,
@@ -295,6 +300,7 @@ impl<'gc> GcRootData<'gc> {
             &mut self.timers,
             &mut self.current_context_menu,
             &mut self.external_interface,
+            &mut self.mirror,
             &mut self.audio_manager,
             &mut self.stream_manager,
             &mut self.sockets,
@@ -423,6 +429,9 @@ pub struct Player {
 
     /// Sends notifications back from the core player to the frontend.
     notification_sender: Option<Sender<PlayerNotification>>,
+
+    /// Display tree mirror frames waiting to be taken by the embedder.
+    mirror_frames: Vec<MirrorFrame>,
 
     /// Debug UI windows
     #[cfg(feature = "egui")]
@@ -618,6 +627,63 @@ impl Player {
             StreamManager::tick(context, dt);
         });
         self.audio.tick();
+        self.flush_mirror(false);
+    }
+
+    /// Emits a display tree mirror frame if one is due, for the embedder
+    /// to take with [`Self::take_mirror_frames`].
+    fn flush_mirror(&mut self, force: bool) -> Option<MirrorFrame> {
+        let frame = self.mutate_with_update_context(|context| Mirror::flush(context, force));
+        if !force && let Some(frame) = frame {
+            self.mirror_frames.push(frame);
+            return None;
+        }
+        frame
+    }
+
+    /// Whether the display tree mirror is active.
+    pub fn mirror_enabled(&mut self) -> bool {
+        self.mutate_with_update_context(|context| context.mirror.enabled())
+    }
+
+    /// Activates or deactivates the display tree mirror. Once active, a frame
+    /// with `reset` set is emitted at the next tick.
+    pub fn set_mirror_enabled(&mut self, enabled: bool) {
+        self.mutate_with_update_context(|context| context.mirror.set_enabled(enabled));
+        if !enabled {
+            self.mirror_frames.clear();
+        }
+    }
+
+    /// Sets which display objects the mirror emits. The next frame resets the receiver.
+    pub fn set_mirror_filter(&mut self, filter: MirrorFilter) {
+        self.mutate_with_update_context(|context| context.mirror.set_filter(filter));
+    }
+
+    /// Sets the minimal delay between two mirror frames, and the period of the
+    /// slow refresh of ActionScript properties (zero means never).
+    pub fn set_mirror_intervals(&mut self, min_interval: Duration, properties_interval: Duration) {
+        self.mutate_with_update_context(|context| {
+            context
+                .mirror
+                .set_intervals(min_interval, properties_interval)
+        });
+    }
+
+    /// Returns a full mirror frame (`reset` set, every property read again),
+    /// or `None` if the mirror is not active. Frames not taken yet are dropped,
+    /// as this one supersedes them.
+    pub fn mirror_refresh(&mut self) -> Option<MirrorFrame> {
+        let frame = self.flush_mirror(true);
+        if frame.is_some() {
+            self.mirror_frames.clear();
+        }
+        frame
+    }
+
+    /// Takes the mirror frames emitted since the last call.
+    pub fn take_mirror_frames(&mut self) -> Vec<MirrorFrame> {
+        std::mem::take(&mut self.mirror_frames)
     }
 
     pub fn time_til_next_timer(&self) -> Option<f64> {
@@ -1005,6 +1071,7 @@ impl Player {
         self.mutate_with_update_context(|context| {
             context.renderer.set_viewport_dimensions(dimensions);
             context.stage.build_matrices(context);
+            context.mirror.mark_structure();
         });
 
         // Flash Player renders right away when the viewport is resized,
@@ -1082,7 +1149,26 @@ impl Player {
             | PlayerEvent::GamepadButtonUp { .. }
             | PlayerEvent::Ime { .. }
             | PlayerEvent::TextInput { .. }
-            | PlayerEvent::TextControl { .. } => self.handle_input_event(event),
+            | PlayerEvent::TextControl { .. } => {
+                let edits_text = matches!(
+                    event,
+                    PlayerEvent::KeyDown { .. }
+                        | PlayerEvent::Ime { .. }
+                        | PlayerEvent::TextInput { .. }
+                        | PlayerEvent::TextControl { .. }
+                );
+                let handled = self.handle_input_event(event);
+                if edits_text {
+                    // Text components that are not an `EditText` (e.g. TLF fields)
+                    // change their text without a hook: let the mirror read it again.
+                    self.mutate_with_update_context(|context| {
+                        if let Some(focus) = context.focus_tracker.get() {
+                            context.mirror.mark_text(focus.as_displayobject());
+                        }
+                    });
+                }
+                handled
+            }
         }
     }
 
@@ -2403,6 +2489,7 @@ impl Player {
                 timers,
                 current_context_menu,
                 external_interface,
+                mirror,
                 audio_manager,
                 stream_manager,
                 sockets,
@@ -2450,6 +2537,7 @@ impl Player {
                 avm1,
                 avm2,
                 external_interface,
+                mirror,
                 start_time: this.start_time,
                 update_start: Instant::now(),
                 max_execution_duration: &mut this.max_execution_duration,
@@ -3143,6 +3231,7 @@ impl PlayerBuilder {
                 external_interface_provider,
                 fs_command_provider,
             ),
+            mirror: Mirror::new(),
             library: Library::empty(),
             load_manager: LoadManager::new(),
             mouse_data: MouseData {
@@ -3272,6 +3361,7 @@ impl PlayerBuilder {
                 compatibility_rules: self.compatibility_rules.clone(),
                 stub_tracker: StubCollection::new(),
                 notification_sender: self.notification_sender,
+                mirror_frames: Vec::new(),
                 #[cfg(feature = "egui")]
                 debug_ui: Default::default(),
 

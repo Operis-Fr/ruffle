@@ -5,8 +5,12 @@ import type {
     URLLoadOptions,
 } from "../../public/config/index.js";
 import type {
+    ContextMenuEntry,
     ExternalInterfaceHandler,
     LocalConnectionHandler,
+    MirrorFilter,
+    MirrorFrame,
+    MirrorInputEvent,
     MovieMetadata,
     NavigateToUrlHandler,
 } from "../../public/player/index.js";
@@ -146,5 +150,45 @@ export class PlayerV1Impl implements PlayerV1 {
 
     set externalInterfaceHandler(handler: ExternalInterfaceHandler | null) {
         this.#inner.externalInterfaceHandler = handler;
+    }
+
+    get mirrorEnabled(): boolean {
+        return this.#inner.mirrorEnabled;
+    }
+
+    set mirrorEnabled(enabled: boolean) {
+        this.#inner.mirrorEnabled = enabled;
+    }
+
+    get mirrorHandler(): ((frame: MirrorFrame) => void) | null {
+        return this.#inner.mirrorHandler;
+    }
+
+    set mirrorHandler(handler: ((frame: MirrorFrame) => void) | null) {
+        this.#inner.mirrorHandler = handler;
+    }
+
+    mirrorRefresh(): MirrorFrame | null {
+        return this.#inner.mirrorRefresh();
+    }
+
+    mirrorSetFilter(filter: MirrorFilter): void {
+        this.#inner.mirrorSetFilter(filter);
+    }
+
+    mirrorSetIntervals(minMs: number, propertiesMs: number): void {
+        this.#inner.mirrorSetIntervals(minMs, propertiesMs);
+    }
+
+    mirrorInject(event: MirrorInputEvent): void {
+        this.#inner.mirrorInject(event);
+    }
+
+    get contextMenuItems(): (() => ContextMenuEntry[]) | null {
+        return this.#inner.embedderContextMenuItems;
+    }
+
+    set contextMenuItems(items: (() => ContextMenuEntry[]) | null) {
+        this.#inner.embedderContextMenuItems = items;
     }
 }

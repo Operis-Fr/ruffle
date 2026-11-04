@@ -12,8 +12,12 @@ import {
     WindowMode,
 } from "../../public/config/index.js";
 import {
+    ContextMenuEntry,
     ExternalInterfaceHandler,
     LocalConnectionHandler,
+    MirrorFilter,
+    MirrorFrame,
+    MirrorInputEvent,
     MovieMetadata,
     NavigateToUrlHandler,
     ReadyState,
@@ -790,6 +794,8 @@ export class InnerPlayer {
                 console.warn(`LocalConnection name already in use: ${name}`);
             }
         }
+
+        this.applyMirrorSettings();
 
         this.rendererDebugInfo = this.instance!.renderer_debug_info();
 
@@ -1577,6 +1583,27 @@ export class InnerPlayer {
             addSeparator();
         }
 
+        if (this.embedderContextMenuItems) {
+            try {
+                for (const entry of this.embedderContextMenuItems()) {
+                    const item: ContextMenuItem = {
+                        text: entry.text,
+                        onClick: async () => entry.onClick(),
+                    };
+                    if (entry.enabled !== undefined) {
+                        item.enabled = entry.enabled;
+                    }
+                    if (entry.checked !== undefined) {
+                        item.checked = entry.checked;
+                    }
+                    items.push(item);
+                }
+            } catch (e) {
+                console.error("Error in the context menu items handler", e);
+            }
+            addSeparator();
+        }
+
         if (this.fullscreenEnabled) {
             if (this.isFullscreen) {
                 items.push({
@@ -2160,6 +2187,84 @@ export class InnerPlayer {
                 `Error in the LocalConnection handler of ${connectionName}`,
                 e,
             );
+        }
+    }
+
+    /**
+     * Settings of the display tree mirror set from JavaScript. They are kept across
+     * instances, and applied when an instance is built.
+     */
+    private mirrorWanted: boolean | null = null;
+    private mirrorFilter: MirrorFilter | null = null;
+    private mirrorIntervals: [number, number] | null = null;
+
+    /**
+     * Receives the frames of the display tree mirror.
+     */
+    public mirrorHandler: ((frame: MirrorFrame) => void) | null = null;
+
+    /**
+     * Extra entries of the context menu, provided by the embedding page.
+     */
+    public embedderContextMenuItems: (() => ContextMenuEntry[]) | null = null;
+
+    get mirrorEnabled(): boolean {
+        return this.instance?.mirror_enabled() ?? this.mirrorWanted === true;
+    }
+
+    set mirrorEnabled(enabled: boolean) {
+        this.mirrorWanted = enabled;
+        this.instance?.set_mirror_enabled(enabled);
+    }
+
+    public mirrorRefresh(): MirrorFrame | null {
+        const frame: MirrorFrame | undefined = this.instance?.mirror_refresh();
+        if (!frame) {
+            return null;
+        }
+        this.onMirrorFrame(frame);
+        return frame;
+    }
+
+    public mirrorSetFilter(filter: MirrorFilter): void {
+        this.instance?.set_mirror_filter(filter);
+        this.mirrorFilter = filter;
+    }
+
+    public mirrorSetIntervals(minMs: number, propertiesMs: number): void {
+        this.mirrorIntervals = [minMs, propertiesMs];
+        this.instance?.set_mirror_intervals(minMs, propertiesMs);
+    }
+
+    public mirrorInject(event: MirrorInputEvent): void {
+        this.instance?.mirror_inject(event);
+    }
+
+    private applyMirrorSettings(): void {
+        if (this.mirrorFilter !== null) {
+            this.instance!.set_mirror_filter(this.mirrorFilter);
+        }
+        if (this.mirrorIntervals !== null) {
+            this.instance!.set_mirror_intervals(...this.mirrorIntervals);
+        }
+        if (this.mirrorWanted !== null) {
+            this.instance!.set_mirror_enabled(this.mirrorWanted);
+        }
+    }
+
+    /**
+     * Called by the instance after the ticks where the display tree mirror changed.
+     *
+     * @param frame The changes since the previous frame.
+     */
+    protected onMirrorFrame(frame: MirrorFrame): void {
+        if (!this.mirrorHandler) {
+            return;
+        }
+        try {
+            this.mirrorHandler(frame);
+        } catch (e) {
+            console.error("Error in the mirror handler", e);
         }
     }
 

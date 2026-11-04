@@ -26,6 +26,7 @@ use crate::input::InputManager;
 use crate::library::Library;
 use crate::loader::LoadManager;
 use crate::local_connection::LocalConnections;
+use crate::mirror::Mirror;
 use crate::net_connection::NetConnections;
 use crate::orphan_manager::OrphanManager;
 use crate::player::PostFrameCallback;
@@ -181,6 +182,9 @@ pub struct UpdateContext<'gc> {
 
     /// External interface for (for example) JavaScript <-> ActionScript interaction
     pub external_interface: &'gc mut ExternalInterface<'gc>,
+
+    /// Display tree mirror for embedders.
+    pub mirror: &'gc mut Mirror<'gc>,
 
     /// The instant at which the SWF was launched.
     pub start_time: Instant,

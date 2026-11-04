@@ -460,6 +460,7 @@ impl<'gc> EditText<'gc> {
         }
 
         self.relayout(context);
+        context.mirror.mark_text(self.into());
     }
 
     pub fn html_text(self) -> WString {
@@ -489,6 +490,7 @@ impl<'gc> EditText<'gc> {
         if self.is_effectively_html() {
             self.0.parse_html(text);
             self.relayout(context);
+            context.mirror.mark_text(self.into());
         } else {
             self.set_text(text, context);
         }
@@ -865,6 +867,7 @@ impl<'gc> EditText<'gc> {
     ) {
         self.0.text_spans.borrow_mut().replace_text(from, to, text);
         self.relayout(context);
+        context.mirror.mark_text(self.into());
     }
 
     /// Returns the variable that this text field is bound to.
@@ -2064,6 +2067,7 @@ impl<'gc> EditText<'gc> {
         if !self.is_editable() || self.available_chars() == 0 {
             return;
         }
+        context.mirror.push_text_input(self.into());
 
         let text = if self.is_multiline() {
             text
