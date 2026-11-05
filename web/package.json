@@ -60,5 +60,8 @@
         "checkTypes": "tsc --noemit",
         "format": "eslint . --fix && stylelint --fix **.css",
         "version-seal": "cross-env ENABLE_VERSION_SEAL=true node packages/core/tools/set_version.ts"
+    },
+    "overrides": {
+        "@puppeteer/browsers@^2": "^3.2.1"
     }
 }
