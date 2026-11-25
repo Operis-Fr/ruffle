@@ -93,6 +93,7 @@ jobs:
         with:
           name: result
           path: firefox_extensions/
+          retention-days: 3
 
   report-result:
     name: Report result to Discord

@@ -31,6 +31,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           path: desktop/packages/linux/locale
+          retention-days: 3
 
       - name: Crowdin push
         uses: crowdin/github-action@v3
