@@ -64,3 +64,4 @@ jobs:
           name: fuzz-artifacts-${{ matrix.target }}-${{ matrix.fuzzer }}
           path: fuzz-artifacts.tar.gz
           if-no-files-found: ignore
+          retention-days: 3

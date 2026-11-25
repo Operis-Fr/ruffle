@@ -149,6 +149,7 @@ jobs:
         with:
           name: selfhosted-dist
           path: web/packages/selfhosted/dist
+          retention-days: 3
 
 
   browser-tests:

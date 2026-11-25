@@ -117,6 +117,7 @@ jobs:
           path: |
             tests*/**/*.actual*.png
             tests*/**/*.difference*.png
+          retention-days: 3
 
   lints:
     needs: changes
@@ -255,6 +256,7 @@ jobs:
         with:
           name: llvm-cov
           path: target/llvm-cov
+          retention-days: 3
 
       - name: Run diff-cover
         run: |
@@ -271,6 +273,7 @@ jobs:
         with:
           name: diff-cover
           path: target/diff-cover
+          retention-days: 3
 
       - name: Upload diff-cover summary
         if: always()
